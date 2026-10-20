@@ -76,3 +76,34 @@ Implement `RecognitionProvider` via a secure backend / serverless function. API 
 Implemented: all requested shape families, multiple projects / drawings / PDF pages, editable dimensions / polygon vertices, zoom and pan, separate category totals, shared-coordinate overlap union, approval invalidation, PDF / PNG exports, dashboard management, local storage, backup restore, sample project, deterministic tests, static build, and Pages workflow.
 
 Not implemented: automatic measurement recognition, AI proposals UI, accounts / sync, price / waste calculations, perspective correction, direct rotated rectangle tools, optional sink / cooktop annotation tools, vector-preserving PDF exports, or CNC output. Uploaded drawings cannot determine physical measurements by themselves. The user supplies and verifies all measurements, scale, and surface relationships. IndexedDB capacity and privacy settings vary by browser. Back up important work; this foundation has not been validated for safety-critical fabrication or all browsers. Publishing and live-site verification still require the GitHub steps above.
+
+## DXF import — measured CAD geometry, without AI
+
+The drawing uploader now accepts ASCII `.dxf` files up to 10 MB. A synthetic 96 × 25 1/2-inch example is included at `public/examples/sample-countertop-inches.dxf` (17.00 sq ft).
+
+1. In your CAD program, join each full outer countertop boundary into a **closed, straight-edged 2D polyline** (`LWPOLYLINE` or `POLYLINE`) in **model space**, at actual size. Export an **ASCII DXF**. Drawing text such as `96"` is not the geometric measurement source.
+2. In the app, create/open a project and choose **Upload drawing**. Import a DXF by itself, separately from image/PDF files.
+3. Confirm the drawing units: inches, feet, millimeters, centimeters, or meters. `$INSUNITS` supplies a suggestion if present; unitless drawings require an explicit selection. DXF coordinates, converted to inches, determine the area. Never assume pixels or a printed label establish the CAD units.
+4. Select the full outer countertop boundaries in the review dialog. Layers and individual areas help identify the correct pieces. No boundary is selected automatically. Do not select sink/cooktop openings as separate countertops; their areas are already included in the outer surface. Do not import paper borders or construction geometry.
+5. Review the contour preview and the warnings about skipped entities. Confirm the units and selection before importing. The resulting polygons and drawing reference remain editable. Final project approval is still required.
+6. Pieces from **one DXF import** preserve their positions relative to each other, including overlaps. For multiple selected surfaces, select **Shared physical coordinates** during review when they occupy the same real coordinate system, and verify placement. Independent DXF imports are fitted separately for display: their relative positions must be measured and aligned explicitly before a shared union across files. Do not guess physical relationships from the screen positions.
+
+Curves/bulges, arcs, circles, splines, block inserts, 3D/transformed/thick geometry, open or ambiguous linework, text dimension recognition, and DWG are not converted to area. Unsupported entities must be reviewed for missing countertop surfaces; no bounding-rectangle approximation is used. Ask your CAD program to export the supported closed outer boundaries; do not replace actual curved edges with straight chords for fabrication estimates. Exact endpoint matches of LINE segments on the same layer can also form an imported boundary. Each connected component must be a simple closed loop with exactly two incident lines per junction. Gaps, duplicate lines, branching junctions, or self-intersections are rejected; endpoints are never snapped automatically.
+
+The importer runs in a worker with a timeout so a problematic DXF need not freeze the editor. The original CAD file remains on your device; the project stores an image of selected contours plus their editable geometry and converted scale, not the original DXF bytes.
+
+## Access control — deferred; public hosting retained
+
+The current site remains public and **has no login**. The owner has chosen to keep GitHub Pages public and implement DXF only for now. A username/password embedded in frontend JavaScript or a localStorage flag would not restrict access to a GitHub Pages site, so neither is implemented. Never commit passwords to this repository or expose them as Vite build variables.
+
+To restrict access to the entire site, use a host with server/edge access control (for example Cloudflare Pages with Cloudflare Access, after configuring the domain and an allowlist of authorized identities). GitHub can remain the source repository. Standard Cloudflare Access uses configured identity/email login rather than an arbitrary shared username/password; an exact shared username/password would need a separate server-side authentication implementation and secret settings. Supabase can authenticate application users, but a frontend login alone does not make public GitHub Pages assets private. A hosting and identity decision will be needed if access control is requested later. DXF processing needs no authentication provider, AI service, or API key.
+
+
+### QCAD: recommended first export
+
+- Work in model space, at actual size, and confirm **Edit → Drawing Preferences → General → Drawing Unit** is **Inch**. Menu wording can vary by QCAD version.
+- Either **R27 [2013] DXF drawing** or **R32 [2018] DXF drawing** can contain the supported entities. Version alone does not determine whether a contour is closed. These formats have not yet been verified against an actual file exported by the owner’s QCAD installation.
+- A rectangle made from four separate lines can import if the endpoints match exactly and all four lines are on the same layer. A small gap, extra duplicate edge, or branch makes that boundary ambiguous.
+- If a contour cannot import, use QCAD’s **Polyline → Create from Segments** tool to build a closed polyline from the outer boundary, and check the closed state in its property editor. Retain actual geometry; never close an unknown gap by guessing dimensions.
+- Keep countertop outer outlines separate from text, paper borders, sink/cooktop cutouts, and construction lines. Select only the intended outer contours in the import review.
+- Start with a known **96 × 25 1/2-inch rectangle**. The preview should show **17.00 sq ft**. Confirm **inches** explicitly even if the file header suggests them. If a known length differs, correct the drawing/export units rather than accepting the result.
