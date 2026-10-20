@@ -95,3 +95,34 @@ test("mobile dashboard and invalid geometry", async ({ page }) => {
     ),
   ).toBe(true);
 });
+
+test("DXF imports measured geometry only after unit and boundary confirmation", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  await page
+    .locator("input[type=file]")
+    .first()
+    .setInputFiles("public/examples/sample-countertop-inches.dxf");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText(/17.00 sq ft/)).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Import measured pieces" }),
+  ).toBeDisabled();
+  await dialog.getByLabel(/COUNTERTOP.*4 vertices/).check();
+  await expect(dialog.getByLabel("Selected DXF contours")).toBeVisible();
+  await dialog.getByLabel(/I verified the drawing units/).check();
+  await dialog.getByRole("button", { name: "Import measured pieces" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator(".piece-total")).toContainText("17.00");
+  await expect(page.getByLabel(/I verified this scale/)).toBeChecked();
+  await page
+    .getByRole("button", { name: "Review & approve", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Approve project snapshot" }).click();
+  await expect(
+    page.getByText("Project approved", { exact: true }),
+  ).toBeVisible();
+});

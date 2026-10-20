@@ -47,6 +47,9 @@ import { listProjects, saveProject, deleteProject } from "./storage";
 import { importDrawing } from "./files";
 import { download, exportReport, exportPNG, dimensions } from "./reports";
 import "./style.css";
+import { type DxfReview } from "./dxf";
+import { readDxf } from "./dxf-client";
+import { DxfImport } from "./DxfImport";
 const shapes: Shape[] = [
   "Straight",
   "L-shape",
@@ -65,6 +68,7 @@ const safeArea = (p: Piece) => {
   }
 };
 function App() {
+  const [dxfReview, setDxfReview] = useState<DxfReview | null>(null);
   const [projects, setProjects] = useState<Project[]>([]),
     [project, setProject] = useState<Project | null>(null),
     [selected, setSelected] = useState(""),
@@ -200,6 +204,17 @@ function App() {
   async function upload(files: FileList | null) {
     if (!project || !files) return;
     await task(async () => {
+      if (Array.from(files).some((f) => /\.dxf$/i.test(f.name))) {
+        if (files.length !== 1)
+          throw Error(
+            "Import one DXF at a time, separately from images and PDFs.",
+          );
+        const file = files[0];
+        if (file.size > 10 * 1024 * 1024)
+          throw Error("DXF must be smaller than 10 MB.");
+        setDxfReview(await readDxf(await file.text(), file.name));
+        return;
+      }
       const result = [];
       for (const file of Array.from(files))
         result.push(...(await importDrawing(file)));
@@ -1476,12 +1491,30 @@ function App() {
         type="file"
         hidden
         multiple
-        accept="image/png,image/jpeg,application/pdf"
+        accept="image/png,image/jpeg,application/pdf,.dxf"
         onChange={(e) => {
           void upload(e.target.files);
           e.target.value = "";
         }}
       />
+      {dxfReview && project && (
+        <DxfImport
+          review={dxfReview}
+          onCancel={() => setDxfReview(null)}
+          onImport={({ drawing, pieces }) => {
+            edit({
+              ...project,
+              drawings: [...project.drawings, drawing],
+              pieces: [...project.pieces, ...pieces],
+              placement: "unresolved",
+              placementConfirmed: false,
+            });
+            setDrawingId(drawing.id);
+            setSelected(pieces[0]?.id || "");
+            setDxfReview(null);
+          }}
+        />
+      )}
       <input
         ref={backupInput}
         type="file"
