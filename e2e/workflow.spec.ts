@@ -126,3 +126,54 @@ test("DXF imports measured geometry only after unit and boundary confirmation", 
     page.getByText("Project approved", { exact: true }),
   ).toBeVisible();
 });
+
+test("curved CAD counter and shared red splash keep analytical areas and categories", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  await page
+    .locator("input[type=file]")
+    .first()
+    .setInputFiles("public/examples/shared-border-curved-counter.dxf");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  const categories = await dialog
+    .locator(".cad-contour-row select")
+    .evaluateAll((els) => els.map((el) => (el as HTMLSelectElement).value));
+  expect(categories.sort()).toEqual(["backsplash", "horizontal"]);
+  for (const checkbox of await dialog
+    .locator(".dxf-contours input[type=checkbox]")
+    .all())
+    await checkbox.check();
+  await dialog.getByLabel(/I verified the drawing units/).check();
+  await dialog.getByRole("button", { name: "Import measured pieces" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    page.locator(
+      'svg[aria-label="Interactive drawing annotations"] path[d*="A"]',
+    ),
+  ).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Review & approve", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Approve project snapshot" }).click();
+  await page.getByRole("button", { name: /Continue to reports/ }).click();
+  await expect(page.locator(".report-table")).toContainText("16.65");
+  await expect(page.locator(".report-table")).toContainText("2.58");
+  const file = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download approved PDF" }).click();
+  expect((await file).suggestedFilename()).toBe(
+    "countertop-approved-report.pdf",
+  );
+  await page.reload();
+  await page
+    .getByRole("button", { name: /Untitled kitchen/ })
+    .first()
+    .click();
+  await expect(
+    page.locator(
+      'svg[aria-label="Interactive drawing annotations"] path[d*="A"]',
+    ),
+  ).toHaveCount(1);
+});

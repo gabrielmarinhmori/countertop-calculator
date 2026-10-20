@@ -1,3 +1,4 @@
+import { boundaryPath } from "./cad-curves";
 import { jsPDF } from "jspdf";
 import {
   type Project,
@@ -13,7 +14,7 @@ import {
 import { loadImage } from "./files";
 export function dimensions(p: Piece): string {
   if (p.shape === "Polygon")
-    return `${p.points.length} vertices; ${p.scale} inches/pixel (confirmed)`;
+    return `${p.boundary ? `${p.boundary.length} CAD edges, ${p.boundary.filter((e) => e.center).length} circular arcs; analytical area` : `${p.points.length} vertices`}; ${p.scale} inches/pixel (confirmed)`;
   return `${dimension(p.length)} x ${dimension(p.width)}${["L-shape", "U-shape"].includes(p.shape) ? `; left ${dimension(p.left)}, back ${dimension(p.back)}${p.shape === "U-shape" ? `, right ${dimension(p.right)}` : ""}` : ""}${p.quantity > 1 ? `; quantity ${p.quantity}` : ""}`;
 }
 export async function annotatedCanvas(project: Project, drawingId: string) {
@@ -40,9 +41,11 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.closePath();
       ctx.fillStyle = "#2d947733";
-      ctx.fill();
+      if (p.boundary) ctx.fill(new Path2D(boundaryPath(p.boundary)));
+      else ctx.fill();
       ctx.strokeStyle = "#176651";
-      ctx.stroke();
+      if (p.boundary) ctx.stroke(new Path2D(boundaryPath(p.boundary)));
+      else ctx.stroke();
       ctx.fillStyle = "#102e27";
       ctx.fillText(
         `${p.name} · ${dimensions(p)} · ${sqft(pieceArea(p))} sq ft`,
