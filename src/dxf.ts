@@ -1,4 +1,11 @@
-import { closedLineContours, type CadLine } from "./dxf-lines";
+import { cadFaces, CAD_TOLERANCE } from "./cad-faces";
+import {
+  type CadEdge,
+  sampleBoundary,
+  transformBoundary,
+  signedBoundaryArea,
+  boundaryPath,
+} from "./cad-curves";
 import DxfParser from "dxf-parser";
 import Decimal from "decimal.js";
 import {
@@ -21,12 +28,16 @@ export interface DxfContour {
   layer: string;
   points: Point[];
   area: string;
+  boundary?: CadEdge[];
+  surface?: "horizontal" | "backsplash" | "waterfall";
 }
 export interface DxfReview {
   name: string;
   unit: DxfUnit | "";
   contours: DxfContour[];
   warnings: string[];
+  context?: CadEdge[];
+  unresolved?: CadEdge[];
 }
 export function parseDxf(text: string, name: string): DxfReview {
   if (text.length > 10 * 1024 * 1024)
@@ -95,7 +106,9 @@ export function parseDxf(text: string, name: string): DxfReview {
     warnings: [],
   };
   const skipped: Record<string, number> = {};
-  const lines: CadLine[] = [];
+  const layerEdges = new Map<string, CadEdge[]>();
+  const addEdges = (layer: string, edges: CadEdge[]) =>
+    layerEdges.set(layer, [...(layerEdges.get(layer) || []), ...edges]);
   for (const entity of doc.entities) {
     const e = entity as unknown as {
       type: string;
@@ -124,7 +137,67 @@ export function parseDxf(text: string, name: string): DxfReview {
       extrusionDirectionZ?: number;
       extrusionDirection?: { x: number; y: number; z: number };
       inPaperSpace?: boolean;
+      colorIndex?: number;
+      color?: number;
+      center?: { x: number; y: number; z?: number };
+      radius?: number;
+      startAngle?: number;
+      endAngle?: number;
     };
+    const layerColor = doc.tables?.layer?.layers[e.layer || "0"];
+    const resolvedRgb = e.color ?? layerColor?.color;
+    const color =
+      resolvedRgb === 0xff0000
+        ? 1
+        : resolvedRgb === 0xffff00
+          ? 2
+          : resolvedRgb === 0xffffff
+            ? 7
+            : e.colorIndex && e.colorIndex !== 256
+              ? e.colorIndex
+              : layerColor?.colorIndex || 7;
+    if (e.type === "ARC") {
+      const c = e.center;
+      if (
+        !c ||
+        c.z ||
+        e.inPaperSpace ||
+        !Number.isFinite(e.radius) ||
+        e.radius! <= 0 ||
+        !Number.isFinite(e.startAngle) ||
+        !Number.isFinite(e.endAngle) ||
+        (e.extrusionDirection &&
+          (e.extrusionDirection.x ||
+            e.extrusionDirection.y ||
+            e.extrusionDirection.z !== 1))
+      ) {
+        skipped["unsupported ARC geometry"] =
+          (skipped["unsupported ARC geometry"] || 0) + 1;
+        continue;
+      }
+      const sweep =
+        (((e.endAngle! - e.startAngle!) % (Math.PI * 2)) + Math.PI * 2) %
+        (Math.PI * 2);
+      if (sweep < 1e-12) {
+        skipped["zero-sweep ARC"] = (skipped["zero-sweep ARC"] || 0) + 1;
+        continue;
+      }
+      const at = (a: number): Point => [
+        c.x + e.radius! * Math.cos(a),
+        c.y + e.radius! * Math.sin(a),
+      ];
+      addEdges(e.layer || "0", [
+        {
+          start: at(e.startAngle!),
+          end: at(e.endAngle!),
+          center: [c.x, c.y],
+          radius: e.radius,
+          sweep,
+          color,
+        },
+      ]);
+      continue;
+    }
     if (e.type === "LINE") {
       const vertices = e.vertices || [];
       const direction = e.extrusionDirection;
@@ -140,11 +213,13 @@ export function parseDxf(text: string, name: string): DxfReview {
           (skipped["unsupported LINE geometry"] || 0) + 1;
         continue;
       }
-      lines.push({
-        layer: e.layer || "0",
-        a: [vertices[0].x, vertices[0].y],
-        b: [vertices[1].x, vertices[1].y],
-      });
+      addEdges(e.layer || "0", [
+        {
+          start: [vertices[0].x, vertices[0].y],
+          end: [vertices[1].x, vertices[1].y],
+          color,
+        },
+      ]);
       continue;
     }
     let reason = "";
@@ -163,7 +238,7 @@ export function parseDxf(text: string, name: string): DxfReview {
       e.depth ||
       e.thickness ||
       e.width ||
-      e.vertices?.some((v) => v.z || v.bulge || v.startWidth || v.endWidth) ||
+      e.vertices?.some((v) => v.z || v.startWidth || v.endWidth) ||
       e.extrusionDirectionX ||
       e.extrusionDirectionY ||
       (e.extrusionDirectionZ !== undefined && e.extrusionDirectionZ !== 1) ||
@@ -190,13 +265,28 @@ export function parseDxf(text: string, name: string): DxfReview {
     )
       points = points.slice(0, -1);
     try {
-      const area = polygonArea(points);
-      review.contours.push({
-        name: `${e.layer || "Layer 0"} · ${e.handle || review.contours.length + 1}`,
-        layer: e.layer || "0",
-        points,
-        area: area.toString(),
+      const boundary: CadEdge[] = points.map((start, i) => {
+        const end = points[(i + 1) % points.length],
+          bulge = e.vertices?.[i]?.bulge;
+        if (!bulge) return { start, end, color };
+        const dx = end[0] - start[0],
+          dy = end[1] - start[1],
+          chord = Math.hypot(dx, dy),
+          offset = (1 - bulge * bulge) / (4 * bulge);
+        return {
+          start,
+          end,
+          center: [
+            (start[0] + end[0]) / 2 - dy * offset,
+            (start[1] + end[1]) / 2 + dx * offset,
+          ],
+          radius: (chord * (1 + bulge * bulge)) / (4 * Math.abs(bulge)),
+          sweep: 4 * Math.atan(bulge),
+          color,
+        };
       });
+      polygonArea(sampleBoundary(boundary));
+      addEdges(e.layer || "0", boundary);
     } catch {
       skipped["invalid / intersecting boundaries"] =
         (skipped["invalid / intersecting boundaries"] || 0) + 1;
@@ -208,14 +298,37 @@ export function parseDxf(text: string, name: string): DxfReview {
       skipped[`unsupported ${type}`] =
         (skipped[`unsupported ${type}`] || 0) + count - parsedCount;
   }
-  const joined = closedLineContours(lines);
-  review.contours.push(...joined.contours);
-  if (joined.rejected)
-    skipped[
-      "LINE segments with open, branching, duplicate, or invalid boundaries"
-    ] = joined.rejected;
-  review.warnings = Object.entries(skipped).map(
-    ([type, count]) => `${count} ${type} skipped.`,
+  review.context = [...layerEdges.values()].flat();
+  review.unresolved = [];
+  for (const [layer, edges] of layerEdges) {
+    const result = cadFaces(edges);
+    review.unresolved.push(...result.unresolved);
+    for (const face of result.faces)
+      review.contours.push({
+        name: `${layer} · ${face.surface === "backsplash" ? "Splash" : "Counter"} ${review.contours.length + 1}`,
+        layer,
+        points: face.points,
+        area: face.area,
+        boundary: face.boundary,
+        surface: face.surface,
+      });
+    if (result.open)
+      skipped["LINE/ARC edges not bounding a valid closed face"] =
+        (skipped["LINE/ARC edges not bounding a valid closed face"] || 0) +
+        result.open;
+    if (result.duplicates)
+      review.warnings.push(
+        `${result.duplicates} duplicate/overlapping edge fragments merged.`,
+      );
+    if (result.cleaned)
+      review.warnings.push(
+        `Numerical endpoint cleanup used tolerance ${CAD_TOLERANCE} DXF units; larger gaps remain open.`,
+      );
+  }
+  review.warnings.push(
+    ...Object.entries(skipped).map(
+      ([type, count]) => `${count} ${type} skipped.`,
+    ),
   );
   if (!review.contours.length)
     throw Error(
@@ -236,8 +349,15 @@ export function dxfGeometry(
     throw Error(
       "Import up to 50,000 vertices at a time. Select fewer contours.",
     );
-  const all = contours.flatMap((c) => c.points),
-    xs = all.map((p) => p[0]),
+  const all = [
+    ...review.contours.flatMap((c) => c.points),
+    ...(review.context || []).flatMap((e) => [...sampleBoundary([e]), e.end]),
+  ];
+  if (all.length > 50000)
+    throw Error(
+      "Drawing preview exceeds 50,000 vertices. Export fewer contours.",
+    );
+  const xs = all.map((p) => p[0]),
     ys = all.map((p) => p[1]);
   const minX = Math.min(...xs),
     maxY = Math.max(...ys),
@@ -247,6 +367,8 @@ export function dxfGeometry(
     throw Error("DXF extents are invalid.");
   return {
     contours,
+    minX,
+    maxY,
     factor,
     scale: new Decimal(dxfUnits[unit]).div(factor).toString(),
     points: contours.map((c) =>
@@ -273,7 +395,22 @@ export function importDxf(
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = "#809787";
   ctx.lineWidth = 2;
-  data.points.forEach((points) => {
+  data.points.forEach((points, index) => {
+    ctx.strokeStyle =
+      data.contours[index].surface === "backsplash" ? "#b84646" : "#326e55";
+    if (data.contours[index].boundary) {
+      const mapped = transformBoundary(
+        data.contours[index].boundary!,
+        (p) => [
+          (p[0] - data.minX) * data.factor + 50,
+          (data.maxY - p[1]) * data.factor + 50,
+        ],
+        data.factor,
+        true,
+      );
+      ctx.stroke(new Path2D(boundaryPath(mapped)));
+      return;
+    }
     ctx.beginPath();
     points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
@@ -281,7 +418,7 @@ export function importDxf(
   });
   const drawing: Drawing = {
     id: crypto.randomUUID(),
-    name: `${review.name} · DXF (${unit}, verified)`,
+    name: `${review.name} · DXF (${unit}, verified; surface categories reviewed)`,
     data: canvas.toDataURL("image/png"),
     width: data.width,
     height: data.height,
@@ -292,6 +429,20 @@ export function importDxf(
     points: data.points[i],
     scale: data.scale,
     scaleConfirmed: true,
+    surface: c.surface || "horizontal",
+    ...(c.boundary?.some((e) => e.center)
+      ? {
+          boundary: transformBoundary(
+            c.boundary,
+            (p) => [
+              (p[0] - data.minX) * data.factor + 50,
+              (data.maxY - p[1]) * data.factor + 50,
+            ],
+            data.factor,
+            true,
+          ),
+        }
+      : {}),
   }));
   return { drawing, pieces };
 }

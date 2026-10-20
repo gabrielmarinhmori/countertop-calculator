@@ -1,3 +1,9 @@
+import {
+  type CadEdge,
+  validateBoundary,
+  sampleBoundary,
+  signedBoundaryArea,
+} from "./cad-curves";
 import Decimal from "decimal.js";
 import polygonClipping from "polygon-clipping";
 export type Point = [number, number];
@@ -29,6 +35,8 @@ export interface Piece {
   defaultConfirmed: boolean;
   drawingId: string;
   annotation: Point;
+  surface?: "horizontal" | "backsplash" | "waterfall";
+  boundary?: CadEdge[];
 }
 export interface Drawing {
   id: string;
@@ -158,6 +166,21 @@ export function geometry(p: Piece): Point[] {
     if (!p.scaleConfirmed)
       throw Error("Confirm a measured drawing scale for this polygon.");
     const scale = inches(p.scale).toNumber();
+    if (p.boundary) {
+      validateBoundary(p.boundary);
+      const expected = sampleBoundary(p.boundary);
+      if (
+        expected.length !== p.points.length ||
+        expected.some(
+          (point, i) =>
+            Math.hypot(point[0] - p.points[i][0], point[1] - p.points[i][1]) >
+            1e-6,
+        )
+      )
+        throw Error(
+          "CAD curve geometry was changed. Reimport the source drawing.",
+        );
+    }
     polygonArea(p.points);
     return p.points.map(([x, y]) => [x * scale, y * scale]);
   }
@@ -202,17 +225,23 @@ export function geometry(p: Piece): Point[] {
   ];
 }
 export const category = (p: Piece) =>
-  p.shape === "Backsplash"
+  p.surface ??
+  (p.shape === "Backsplash"
     ? "backsplash"
     : p.shape === "Waterfall"
       ? "waterfall"
-      : "horizontal";
+      : "horizontal");
 export function pieceArea(p: Piece) {
   if (!Number.isInteger(p.quantity) || p.quantity < 1 || p.quantity > 1000)
     throw Error("Quantity must be an integer from 1 to 1000.");
   if (category(p) === "horizontal" && p.quantity !== 1)
     throw Error("Add horizontal surfaces as individual pieces.");
-  return polygonArea(geometry(p)).times(p.quantity);
+  const physical = geometry(p);
+  return (
+    p.boundary
+      ? signedBoundaryArea(p.boundary).abs().times(inches(p.scale).pow(2))
+      : polygonArea(physical)
+  ).times(p.quantity);
 }
 export function totals(project: Project) {
   let horizontal = new Decimal(0),
@@ -227,7 +256,14 @@ export function totals(project: Project) {
     else if (category(p) === "waterfall") waterfall = waterfall.plus(a);
     else horizontal = horizontal.plus(a);
   }
-  if (project.placement === "shared" && horizontalPieces.length) {
+  const curved = horizontalPieces.some((p) =>
+    p.boundary?.some((e) => e.center),
+  );
+  if (project.placement === "shared" && curved && horizontalPieces.length > 1)
+    throw Error(
+      "Shared overlap union with curved countertops is not supported. Verify that surfaces do not overlap and select separate surfaces, or revise the CAD layout.",
+    );
+  if (project.placement === "shared" && horizontalPieces.length && !curved) {
     const polygons = horizontalPieces.map((p) => {
       if (!/^-?\d+(?:\.\d+)?$/.test(p.x) || !/^-?\d+(?:\.\d+)?$/.test(p.y))
         throw Error("Shared positions require signed decimal inches.");
@@ -286,7 +322,8 @@ export function issues(p: Project): string[] {
   try {
     totals(p);
   } catch (e) {
-    if (!errors.length) errors.push((e as Error).message);
+    if (!errors.some((s) => s.endsWith((e as Error).message)))
+      errors.push((e as Error).message);
   }
   return errors;
 }

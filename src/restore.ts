@@ -1,3 +1,4 @@
+import { validateBoundary } from "./cad-curves";
 import {
   type Project,
   type Piece,
@@ -61,6 +62,15 @@ export function restoreProject(value: unknown): Project {
       )
     )
       throw Error("Invalid piece in backup.");
+    if (
+      p.surface !== undefined &&
+      !["horizontal", "backsplash", "waterfall"].includes(p.surface)
+    )
+      throw Error("Invalid surface category.");
+    if (p.boundary !== undefined) {
+      if (p.shape !== "Polygon") throw Error("CAD boundary must be a polygon.");
+      validateBoundary(p.boundary);
+    }
     const result = makePiece(p.shape);
     for (const key of [
       "length",
@@ -88,6 +98,8 @@ export function restoreProject(value: unknown): Project {
       throw Error("Invalid annotation or quantity.");
     return {
       ...result,
+      ...(p.surface ? { surface: p.surface } : {}),
+      ...(p.boundary ? { boundary: structuredClone(p.boundary) } : {}),
       name: p.name,
       points: p.points,
       annotation: p.annotation,

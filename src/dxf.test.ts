@@ -48,7 +48,7 @@ describe("DXF measured geometry", () => {
     expect(() =>
       dxfGeometry(parseDxf(fixture(), "test"), "inches", []),
     ).toThrow());
-  it.each([{ closed: 0 }, { bulge: 1 }, { extrusion: -1 }, { width: 0 }])(
+  it.each([{ closed: 0 }, { bulge: -1 }, { extrusion: -1 }, { width: 0 }])(
     "rejects unsupported or invalid outlines: %j",
     (options) => expect(() => parseDxf(fixture(options), "test.dxf")).toThrow(),
   );
@@ -112,4 +112,11 @@ it("warns about unsupported entities that the parser drops", () => {
     "with-hatch.dxf",
   );
   expect(result.warnings.join()).toMatch(/HATCH/);
+});
+
+it("reads bulged semicircular polyline edges analytically", () => {
+  const r = parseDxf(fixture({ bulge: 1 }), "bulged.dxf");
+  expect(r.contours).toHaveLength(1);
+  expect(Number(r.contours[0].area)).toBeCloseTo(2448 + 1152 * Math.PI, 7);
+  expect(r.contours[0].boundary?.some((e) => e.center)).toBe(true);
 });

@@ -1,3 +1,4 @@
+import { boundaryPath } from "./cad-curves";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -128,6 +129,15 @@ function App() {
   }
   function patchPiece(patch: Partial<Piece>) {
     if (!project) return;
+    if (
+      project.pieces.find((p) => p.id === selected)?.boundary &&
+      patch.points
+    ) {
+      setError(
+        "Curved CAD boundaries preserve circular arcs. Edit the source CAD drawing and reimport; polygon editing would remove the curves.",
+      );
+      return;
+    }
     edit({
       ...project,
       pieces: project.pieces.map((p) =>
@@ -757,16 +767,28 @@ function App() {
                                     }
                                   }}
                                 >
-                                  <polygon
-                                    points={pts
-                                      .map((q) => q.join(","))
-                                      .join(" ")}
-                                    fill={`${color}28`}
-                                    stroke={color}
-                                    strokeWidth={p.id === selected ? 3 : 1.5}
-                                    vectorEffect="non-scaling-stroke"
-                                    strokeDasharray={!valid ? "6 4" : undefined}
-                                  />
+                                  {p.boundary ? (
+                                    <path
+                                      d={boundaryPath(p.boundary)}
+                                      fill={`${color}28`}
+                                      stroke={color}
+                                      strokeWidth={p.id === selected ? 3 : 1.5}
+                                      vectorEffect="non-scaling-stroke"
+                                    />
+                                  ) : (
+                                    <polygon
+                                      points={pts
+                                        .map((q) => q.join(","))
+                                        .join(" ")}
+                                      fill={`${color}28`}
+                                      stroke={color}
+                                      strokeWidth={p.id === selected ? 3 : 1.5}
+                                      vectorEffect="non-scaling-stroke"
+                                      strokeDasharray={
+                                        !valid ? "6 4" : undefined
+                                      }
+                                    />
+                                  )}
                                   {pts[0] && (
                                     <text
                                       x={pts[0][0]}
@@ -788,6 +810,7 @@ function App() {
                                     </text>
                                   )}
                                   {p.shape === "Polygon" &&
+                                    !p.boundary &&
                                     p.id === selected &&
                                     pts.map(([x, y], i) => (
                                       <circle
@@ -1051,10 +1074,14 @@ function App() {
                               remove it. Pixel coordinates alone cannot
                               establish area.
                             </p>
-                            <button onClick={() => setTool("polygon")}>
+                            <button
+                              disabled={!!piece.boundary}
+                              onClick={() => setTool("polygon")}
+                            >
                               <PenTool size={14} /> Draw polygon
                             </button>
                             <button
+                              disabled={!!piece.boundary}
                               onClick={() =>
                                 patchPiece({
                                   points: [],
@@ -1089,8 +1116,19 @@ function App() {
                               I verified this scale from a real measurement and
                               a uniformly scaled plan.
                             </label>
+                            {piece.boundary && (
+                              <p className="notice">
+                                Circular CAD arcs are preserved analytically.
+                                Edit curved boundaries in QCAD and reimport.
+                                Category: {category(piece)}.
+                              </p>
+                            )}
                             <details>
-                              <summary>Edit exact drawing coordinates</summary>
+                              <summary>
+                                {piece.boundary
+                                  ? "Inspect curve display coordinates (read-only)"
+                                  : "Edit exact drawing coordinates"}
+                              </summary>
                               {piece.points.map(([x, y], i) => (
                                 <div className="field-grid" key={i}>
                                   {[x, y].map((v, j) => (
@@ -1099,6 +1137,7 @@ function App() {
                                       <input
                                         type="number"
                                         value={v}
+                                        readOnly={!!piece.boundary}
                                         onChange={(e) =>
                                           patchPiece({
                                             points: piece.points.map((pt, k) =>
