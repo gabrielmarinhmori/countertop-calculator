@@ -47,6 +47,7 @@ export function restoreProject(value: unknown): Project {
       height: d.height,
     };
   });
+  const idMap = new Map<string, string>();
   const pieces: Piece[] = v.pieces.map((p) => {
     if (
       !p ||
@@ -71,7 +72,24 @@ export function restoreProject(value: unknown): Project {
       if (p.shape !== "Polygon") throw Error("CAD boundary must be a polygon.");
       validateBoundary(p.boundary);
     }
+    if (typeof p.id !== "string" || idMap.has(p.id))
+      throw Error("Invalid or duplicate piece identifier.");
     const result = makePiece(p.shape);
+    idMap.set(p.id, result.id);
+    if (p.edgeSource) {
+      const link = p.edgeSource;
+      if (
+        p.shape !== "Backsplash" ||
+        typeof link.pieceId !== "string" ||
+        !Number.isInteger(link.edgeIndex) ||
+        link.edgeIndex < 0 ||
+        !Number.isInteger(link.edgeCount) ||
+        link.edgeCount < 2 ||
+        link.edgeIndex >= link.edgeCount
+      )
+        throw Error("Invalid linked backsplash.");
+    }
+
     for (const key of [
       "length",
       "width",
@@ -99,6 +117,7 @@ export function restoreProject(value: unknown): Project {
     return {
       ...result,
       ...(p.surface ? { surface: p.surface } : {}),
+      ...(p.edgeSource ? { edgeSource: { ...p.edgeSource } } : {}),
       ...(p.boundary ? { boundary: structuredClone(p.boundary) } : {}),
       name: p.name,
       points: p.points,
@@ -109,6 +128,13 @@ export function restoreProject(value: unknown): Project {
       scaleConfirmed: false,
     };
   });
+  for (const p of pieces) {
+    if (p.edgeSource) {
+      const target = idMap.get(p.edgeSource.pieceId);
+      if (!target) throw Error("Missing backsplash source in backup.");
+      p.edgeSource = { ...p.edgeSource, pieceId: target };
+    }
+  }
   return {
     ...makeProject(v.name + " (restored)"),
     drawings,

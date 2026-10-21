@@ -1,5 +1,6 @@
 import {
   type CadEdge,
+  transformBoundary,
   validateBoundary,
   sampleBoundary,
   signedBoundaryArea,
@@ -37,6 +38,7 @@ export interface Piece {
   annotation: Point;
   surface?: "horizontal" | "backsplash" | "waterfall";
   boundary?: CadEdge[];
+  edgeSource?: { pieceId: string; edgeIndex: number; edgeCount: number };
 }
 export interface Drawing {
   id: string;
@@ -244,6 +246,7 @@ export function pieceArea(p: Piece) {
   ).times(p.quantity);
 }
 export function totals(project: Project) {
+  validateEdgeBacksplashes(project);
   let horizontal = new Decimal(0),
     backsplash = new Decimal(0),
     waterfall = new Decimal(0);
@@ -365,5 +368,109 @@ export function makeProject(name = "Untitled project"): Project {
     drawings: [],
     placement: "unresolved",
     placementConfirmed: false,
+  };
+}
+
+/** Physical edge lengths, independent of annotation zoom or position. */
+export function physicalEdges(p: Piece): CadEdge[] {
+  const pts = geometry(p);
+  if (p.boundary) {
+    const scale = inches(p.scale).toNumber();
+    return transformBoundary(
+      p.boundary,
+      (q) => [q[0] * scale, q[1] * scale],
+      scale,
+    );
+  }
+  return pts.map((start, i) => ({ start, end: pts[(i + 1) % pts.length] }));
+}
+export function measuredEdgeLength(p: Piece, index: number): Decimal {
+  const edges = physicalEdges(p);
+  if (!Number.isInteger(index) || index < 0 || index >= edges.length)
+    throw Error("Choose an existing measured edge.");
+  const e = edges[index];
+  return e.center
+    ? new Decimal(e.radius!).times(Math.abs(e.sweep!))
+    : new Decimal(e.end[0])
+        .minus(e.start[0])
+        .pow(2)
+        .plus(new Decimal(e.end[1]).minus(e.start[1]).pow(2))
+        .sqrt();
+}
+function sourceForPanel(project: Project, p: Piece): Piece {
+  const link = p.edgeSource!;
+  const source = project.pieces.find((s) => s.id === link.pieceId);
+  if (
+    p.shape !== "Backsplash" ||
+    category(p) !== "backsplash" ||
+    !source ||
+    category(source) !== "horizontal" ||
+    source.edgeSource
+  )
+    throw Error(
+      `${p.name}: the source countertop is missing or invalid. Reselect its edge or delete this panel.`,
+    );
+  if (physicalEdges(source).length !== link.edgeCount)
+    throw Error(
+      `${p.name}: the source outline has changed. Delete and recreate this linked panel on the correct edge.`,
+    );
+  return source;
+}
+export function validateEdgeBacksplashes(project: Project) {
+  for (const p of project.pieces.filter((p) => p.edgeSource)) {
+    const source = sourceForPanel(project, p);
+    const length = measuredEdgeLength(source, p.edgeSource!.edgeIndex);
+    if (!inches(p.length).eq(length))
+      throw Error(
+        `${p.name}: linked edge measurements are out of date. Edit or reselect the source edge.`,
+      );
+  }
+}
+export function refreshEdgeBacksplashes(project: Project): Project {
+  return {
+    ...project,
+    pieces: project.pieces.map((p) => {
+      if (!p.edgeSource) return p;
+      try {
+        const source = sourceForPanel(project, p);
+        return {
+          ...p,
+          length: measuredEdgeLength(source, p.edgeSource.edgeIndex).toString(),
+          drawingId: source.drawingId,
+        };
+      } catch {
+        return { ...p, length: "" };
+      }
+    }),
+  };
+}
+export function createEdgeBacksplash(
+  project: Project,
+  pieceId: string,
+  edgeIndex: number,
+  height: string,
+): Piece {
+  inches(height);
+  const source = project.pieces.find((p) => p.id === pieceId);
+  if (!source || category(source) !== "horizontal")
+    throw Error("Choose a measured countertop first.");
+  if (
+    project.pieces.some(
+      (p) =>
+        p.edgeSource?.pieceId === pieceId &&
+        p.edgeSource.edgeIndex === edgeIndex,
+    )
+  )
+    throw Error(
+      "This edge already has a linked backsplash. Edit that panel instead.",
+    );
+  const edges = physicalEdges(source),
+    length = measuredEdgeLength(source, edgeIndex).toString();
+  return {
+    ...makePiece("Backsplash", source.drawingId),
+    name: `${source.name} backsplash ${edgeIndex + 1}`,
+    length,
+    width: height,
+    edgeSource: { pieceId, edgeIndex, edgeCount: edges.length },
   };
 }

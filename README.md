@@ -1,10 +1,10 @@
 # Countertop Calculator
 
-A private, browser-based workspace for manual countertop takeoffs. React + TypeScript + Vite. No accounts, paid services, AI requests, server, or API keys.
+A browser-based workspace with device-local drawing storage for countertop takeoffs. React + TypeScript + Vite. No accounts, paid services, AI requests, server, or API keys.
 
 ## Use the app
 
-1. Choose **Explore a sample project** to learn with editable example measurements, or **New project**.
+1. Enter the shared password on the basic access screen, then choose **Explore a sample project** to learn with editable example measurements, or **New project**.
 2. Give the project a name. Upload PNG, JPEG, or PDF drawings. PDF pages appear individually in the drawing selector. Each file may be up to 25 MB; PDFs up to 30 pages; images up to 40 megapixels.
 3. Add individual Straight, L-shape, U-shape, Island, Peninsula, Polygon, Backsplash, or Waterfall pieces. Select the piece to edit its dimensions and drawing reference. All dimensions are in inches; enter `96`, `25.5`, or `25 1/2`.
 4. For L / U shapes, enter external X/Y dimensions and independent top (back), left, and right leg depths. The schematic shows the exact orientation. Island, backsplash, waterfall, and polygon dimensions are never supplied silently. Ordinary run depths are labeled assumptions requiring confirmation.
@@ -95,12 +95,20 @@ Circular areas use the analytical chord-plus-circular-segment formula `r² × (t
 
 Unsupported: splines/ellipses, block expansion, 3D/transformed/thick geometry, DWG, arbitrary gap filling, and reading measurement text. Reconstruction is limited to 2,000 source edges per layer and a 50,000-vertex preview; complex drawings should be exported by relevant layers. Parsing/reconstruction runs in a worker with a timeout. Review warnings for omitted geometry; do not assume every detected region is a real piece or that every entity was imported. The original DXF stays on your device; projects store the selected geometry, converted scale, curved boundaries, and a drawing image rather than the original DXF bytes.
 
-## Access control — deferred; public hosting retained
+## Basic password screen on GitHub Pages
 
-The current site remains public and **has no login**. The owner has chosen to keep GitHub Pages public and implement DXF only for now. A username/password embedded in frontend JavaScript or a localStorage flag would not restrict access to a GitHub Pages site, so neither is implemented. Never commit passwords to this repository or expose them as Vite build variables.
+The owner explicitly chose a basic password barrier for casual visitors while retaining GitHub Pages. **The site, application code, and verifier remain public. This is not secure authentication or authorization.** A technical visitor can bypass the screen or attack the verifier offline. It does not encrypt IndexedDB projects or prevent another user of the same browser profile from opening local data. Do not reuse an important password or treat drawings as protected by this gate. Real restricted access requires a server/edge access-control layer, which is not implemented.
 
-To restrict access to the entire site, use a host with server/edge access control (for example Cloudflare Pages with Cloudflare Access, after configuring the domain and an allowlist of authorized identities). GitHub can remain the source repository. Standard Cloudflare Access uses configured identity/email login rather than an arbitrary shared username/password; an exact shared username/password would need a separate server-side authentication implementation and secret settings. Supabase can authenticate application users, but a frontend login alone does not make public GitHub Pages assets private. A hosting and identity decision will be needed if access control is requested later. DXF processing needs no authentication provider, AI service, or API key.
+The initial password is the shared password the owner previously supplied; no username is required. Its plaintext is not included in the repository. `public/access-gate.json` contains a salted PBKDF2-SHA256 verifier (310,000 iterations), checked in the browser through Web Crypto. HTTPS is required except for supported localhost development. The app is loaded after a match. The tab remembers entry for four hours across reloads; **Lock workspace** clears this tab's entry immediately. Changing the published verifier makes prior tab entries invalid on their next reload. These are convenience behaviors of a client-side barrier, not security guarantees.
 
+### Change the shared password entirely in your browser
+
+1. Open the deployed site's `gate-settings.html` page (append `gate-settings.html` to the site address ending in `/`). This public tool cannot change the deployed site by itself.
+2. Enter and confirm a new shared password, then click **Download new access settings**. Calculation happens in your browser; the password is not sent to a service or included in the downloaded JSON. The verifier itself is deliberately public.
+3. In your GitHub repository open `public/access-gate.json` → **Edit this file**. Open the downloaded JSON with a browser tab or text viewer, copy its complete contents, and replace that file's contents. Commit through a new branch / pull request, then merge after checks pass. Alternatively, use GitHub **Add file → Upload files** from the `public` directory to replace `access-gate.json`.
+4. Wait for the Pages deployment to succeed. Reload the app and use the new password. The settings generator does not publish changes; only repository changes and deployment do that. Never paste the plaintext password into repository files, issues, comments, or the workflow.
+
+The functional browser suite mocks a disabled gate to test the editor independently. Dedicated access-screen tests exercise incorrect/correct password entry, tab recall, relocking, failed settings fetch, expired entries, and the browser-only verifier generator with synthetic test passwords.
 
 ### QCAD: recommended first export
 
@@ -110,3 +118,20 @@ To restrict access to the entire site, use a host with server/edge access contro
 - If a contour cannot import, use QCAD’s **Polyline → Create from Segments** tool to build a closed polyline from the outer boundary, and check the closed state in its property editor. Retain actual geometry; never close an unknown gap by guessing dimensions.
 - Keep countertop outer outlines separate from text, paper borders, sink/cooktop cutouts, and construction lines. Select only the intended outer contours in the import review.
 - Start with a known **96 × 25 1/2-inch rectangle**. The preview should show **17.00 sq ft**. Confirm **inches** explicitly even if the file header suggests them. If a known length differs, correct the drawing/export units rather than accepting the result.
+
+## Faster DXF selection and renaming
+
+In DXF review, **Select all** includes every detected region; **Clear selection** unchecks them all. You can deselect individual regions afterward. Bulk selection does not confirm categories, units, or processing warnings and does not approve anything. Small slivers and cutout regions can be included by Select all: review and remove them if they are not physical material.
+
+Double-click a region's name to rename it before import. After import, double-click a name in the piece list or its drawing label. The existing **Piece name** field remains available for mobile/keyboard editing. Renaming an existing project piece invalidates project approval.
+
+## Create a backsplash by clicking a measured edge
+
+1. Select a horizontal countertop with valid physical measurements. A PNG/PDF polygon still needs a verified scale; pixels alone cannot supply length.
+2. In **Piece details → Add back / side splash**, enter **Backsplash height (inches)**, such as `4`, `5`, or `5 1/2`. No height is applied silently.
+3. Click **Choose backsplash edge**, then click an amber highlighted edge in the drawing. Keyboard users can focus an edge and press Enter/Space. One panel is created per click; repeating the same source edge is blocked so you can edit the existing panel instead.
+4. A separate Backsplash piece is created with `length = measured edge length` and `area = length × height × quantity / 144`. Circular edges use radius × absolute sweep for developed panel length; they are not measured as straight chords. No waste or joint allowances are added.
+5. The overlay marks the attachment edge rather than drawing a misleading flat-panel footprint on the countertop. The height can be edited in the new panel's details. Its inherited length and drawing reference are read-only.
+6. Changing source measurements automatically refreshes linked panel lengths and totals, and invalidates approval. Removing the source or changing its number of edges blocks approval; delete and recreate the affected panel on the correct edge. Backups preserve the source relationship and remap source IDs on restore.
+
+This tool does not detect whether an independently drawn/imported backsplash already covers the selected edge. Review existing material pieces before creating another panel. Topology changes are not guessed; arbitrary vertical profiles, gaps, fabrication miters, and curved panel manufacturability need manual review.

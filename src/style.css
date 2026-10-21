@@ -1278,3 +1278,103 @@ summary {
     width: 100%;
   }
 }
+.selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.selection-toolbar span {
+  font-size: 11px;
+  color: #71846a;
+  margin-left: auto;
+}
+[title="Double-click to rename"] {
+  cursor: text;
+}
+.backsplash-controls {
+  border: 1px solid #e4ddc9;
+  background: #fcfaf4;
+  border-radius: 6px;
+  padding: 14px;
+  margin-top: 18px;
+}
+.backsplash-controls .section-label {
+  margin-bottom: 12px;
+}
+.backsplash-controls button {
+  font-size: 11px;
+  width: 100%;
+}
+.backsplash-controls [role="status"] {
+  font-size: 11px;
+  color: #965c21;
+}
+.backsplash-edge-hit {
+  cursor: crosshair;
+  pointer-events: stroke;
+}
+.backsplash-edge-hit:hover,
+.backsplash-edge-hit:focus {
+  stroke-opacity: 0.9;
+  stroke: #d79b42;
+  outline: none;
+}
+input[readonly] {
+  background: #f2f4ee;
+  color: #7d8a75;
+}
+.gate-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #edf1e6;
+}
+.gate-card {
+  margin: 0;
+  width: 100%;
+  max-width: 430px;
+  padding: 38px;
+  border: 1px solid #dce4d3;
+  border-radius: 14px;
+  background: white;
+  box-shadow: 0 15px 55px #243c2110;
+}
+.gate-card h1 {
+  font-size: 30px;
+  margin: 16px 0;
+}
+.gate-card > p {
+  font-size: 12px;
+}
+.gate-card form {
+  margin-top: 25px;
+}
+.gate-card label {
+  font-size: 12px;
+}
+.gate-card input {
+  padding: 12px;
+}
+.gate-card form button {
+  width: 100%;
+  margin-top: 8px;
+}
+.gate-card .gate-disclaimer {
+  font-size: 10px;
+  margin: 25px 0 0;
+  color: #8c977f;
+}
+.gate-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: #5b7251;
+}
+.lock-button {
+  font-size: 10px;
+  margin-left: auto;
+  margin-right: 15px;
+}

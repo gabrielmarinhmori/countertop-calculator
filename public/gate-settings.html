@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Basic access password settings</title>
+    <style>
+      body {
+        font: 16px system-ui;
+        background: #f4f6f1;
+        color: #294637;
+        max-width: 650px;
+        margin: 50px auto;
+        padding: 24px;
+      }
+      label,
+      input,
+      button {
+        display: block;
+        margin: 15px 0;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 12px;
+        border: 1px solid #ced9c8;
+        border-radius: 6px;
+      }
+      button {
+        background: #244e3e;
+        color: white;
+        cursor: pointer;
+      }
+      p {
+        line-height: 1.7;
+      }
+      small {
+        color: #717e69;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Change the basic access password</h1>
+    <p>
+      This tool runs entirely in your browser. It creates a public password
+      verifier, not secure authentication. Nothing changes on the site until the
+      repository owner replaces <code>public/access-gate.json</code> and
+      deploys.
+    </p>
+    <form id="form">
+      <label
+        >New shared password<input
+          id="password"
+          type="password"
+          autocomplete="new-password"
+          minlength="8"
+          required /></label
+      ><label
+        >Confirm password<input
+          id="confirm"
+          type="password"
+          autocomplete="new-password"
+          minlength="8"
+          required /></label
+      ><button>Download new access settings</button>
+    </form>
+    <p id="status" role="status"></p>
+    <small
+      >The password itself is not included in the downloaded file. The verifier
+      will be public and can be bypassed or attacked offline. Do not reuse an
+      important password.</small
+    >
+    <script>
+      const form = document.getElementById("form");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const password = document.getElementById("password"),
+          confirm = document.getElementById("confirm"),
+          status = document.getElementById("status"),
+          button = form.querySelector("button");
+        if (password.value !== confirm.value) {
+          status.textContent = "Passwords do not match.";
+          return;
+        }
+        button.disabled = true;
+        try {
+          const salt = crypto.getRandomValues(new Uint8Array(24)),
+            iterations = 310000,
+            key = await crypto.subtle.importKey(
+              "raw",
+              new TextEncoder().encode(password.value),
+              "PBKDF2",
+              false,
+              ["deriveBits"],
+            ),
+            hash = new Uint8Array(
+              await crypto.subtle.deriveBits(
+                { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+                key,
+                256,
+              ),
+            ),
+            base64 = (bytes) => btoa(String.fromCharCode(...bytes)),
+            settings = {
+              version: 1,
+              enabled: true,
+              iterations,
+              salt: base64(salt),
+              digest: base64(hash),
+            },
+            url = URL.createObjectURL(
+              new Blob([JSON.stringify(settings, null, 2) + "\n"], {
+                type: "application/json",
+              }),
+            ),
+            a = document.createElement("a");
+          a.href = url;
+          a.download = "access-gate.json";
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          password.value = "";
+          confirm.value = "";
+          status.textContent =
+            "Downloaded. Replace public/access-gate.json in your GitHub repository, commit the change, and wait for deployment.";
+        } catch {
+          status.textContent =
+            "Could not generate settings. Use a modern browser over HTTPS.";
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
