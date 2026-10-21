@@ -1,3 +1,4 @@
+import SlabPlanner from "./SlabPlanner";
 import {
   drawingEdges,
   linkedDrawingEdge,
@@ -391,22 +392,26 @@ export default function App() {
         {project && (
           <>
             <div className="rail-caption">CURRENT PROJECT</div>
-            {["Workspace", "Review & approve", "Reports"].map((s, i) => (
-              <button
-                key={s}
-                className={`nav ${tab === s ? "active" : ""}`}
-                onClick={() => setTab(s)}
-              >
-                {i === 0 ? (
-                  <Layers size={19} />
-                ) : i === 1 ? (
-                  <CheckCircle2 size={19} />
-                ) : (
-                  <FileDown size={19} />
-                )}{" "}
-                {s}
-              </button>
-            ))}
+            {["Workspace", "Slab planning", "Review & approve", "Reports"].map(
+              (s, i) => (
+                <button
+                  key={s}
+                  className={`nav ${tab === s ? "active" : ""}`}
+                  onClick={() => setTab(s)}
+                >
+                  {s === "Workspace" ? (
+                    <Layers size={19} />
+                  ) : s === "Slab planning" ? (
+                    <PanelTop size={19} />
+                  ) : s === "Review & approve" ? (
+                    <CheckCircle2 size={19} />
+                  ) : (
+                    <FileDown size={19} />
+                  )}{" "}
+                  {s}
+                </button>
+              ),
+            )}
           </>
         )}
         <div className="rail-bottom">
@@ -1617,6 +1622,20 @@ export default function App() {
                   ))}
                 </div>
               </>
+            ) : tab === "Slab planning" ? (
+              <SlabPlanner
+                key={project.id}
+                project={project}
+                onChange={(slabSettings) => {
+                  const p = {
+                    ...project,
+                    slabSettings,
+                    updated: new Date().toISOString(),
+                  };
+                  setProject(p);
+                  persist(p);
+                }}
+              />
             ) : tab === "Review & approve" ? (
               <section className="review-panel">
                 <div className="eyebrow">MEASURE. VERIFY. APPROVE.</div>

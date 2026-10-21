@@ -135,7 +135,36 @@ export function restoreProject(value: unknown): Project {
       p.edgeSource = { ...p.edgeSource, pieceId: target };
     }
   }
+  if (v.slabSettings) {
+    const s = v.slabSettings;
+    if (
+      !s ||
+      ["length", "width", "gap", "margin"].some(
+        (k) => typeof s[k as keyof typeof s] !== "string",
+      ) ||
+      typeof s.allowRotation !== "boolean" ||
+      !Array.isArray(s.excludedIds) ||
+      !Array.isArray(s.rotationLockedIds) ||
+      [...s.excludedIds, ...s.rotationLockedIds].some(
+        (id) => typeof id !== "string",
+      )
+    )
+      throw Error("Invalid slab settings.");
+  }
   return {
+    ...(v.slabSettings
+      ? {
+          slabSettings: {
+            ...v.slabSettings,
+            excludedIds: v.slabSettings.excludedIds
+              .map((id) => idMap.get(id))
+              .filter((id): id is string => !!id),
+            rotationLockedIds: v.slabSettings.rotationLockedIds
+              .map((id) => idMap.get(id))
+              .filter((id): id is string => !!id),
+          },
+        }
+      : {}),
     ...makeProject(v.name + " (restored)"),
     drawings,
     pieces,
