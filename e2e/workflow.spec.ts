@@ -231,8 +231,10 @@ test("a clicked measured edge creates a separate backsplash that follows dimensi
   await page.getByRole("button", { name: "Island", exact: true }).click();
   await page.getByLabel("Length / overall X").fill("96");
   await page.getByLabel("Depth / width").fill("25 1/2");
+  await page
+    .getByRole("button", { name: "Backsplash tool", exact: true })
+    .click();
   await page.getByLabel("Backsplash height (inches)").fill("4");
-  await page.getByRole("button", { name: "Choose backsplash edge" }).click();
   const edge = page.getByRole("button", {
     name: "Add backsplash to Island, edge 1",
     exact: true,
@@ -245,6 +247,8 @@ test("a clicked measured edge creates a separate backsplash that follows dimensi
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(page.locator(".piece-row")).toHaveCount(2);
   await expect(page.locator(".bottom-summary")).toContainText("2.67");
+  await expect(page.locator(".backsplash-panel")).toHaveCount(1);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
   await page.getByLabel("Length / overall X").fill("120");
   await expect(page.locator(".bottom-summary")).toContainText("3.33");
   await page.getByRole("button", { name: /Island backsplash 1/ }).click();
@@ -272,12 +276,128 @@ test("curved CAD attachment uses arc length for the new backsplash", async ({
   await dialog.getByRole("button", { name: "Select all", exact: true }).click();
   await dialog.getByLabel(/I verified the drawing units/).check();
   await dialog.getByRole("button", { name: "Import measured pieces" }).click();
+  await page
+    .getByRole("button", { name: "Backsplash tool", exact: true })
+    .click();
   await page.getByLabel("Backsplash height (inches)").fill("4");
-  await page.getByRole("button", { name: "Choose backsplash edge" }).click();
   const arc = page.locator('.backsplash-edge-hit[d*="A"]');
   await expect(arc).toHaveCount(1);
   await arc.focus();
   await arc.press("Enter");
   await expect(page.locator(".piece-row")).toHaveCount(3);
   await expect(page.locator(".bottom-summary")).toContainText("2.71");
+  await expect(
+    page.locator('.backsplash-panel[data-panel-kind="developed"]'),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Review & approve", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Approve project snapshot" }).click();
+  await page.getByRole("button", { name: /Continue to reports/ }).click();
+  const png = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Annotated PNG" }).click();
+  expect((await png).suggestedFilename()).toBe("annotated-drawing.png");
+  const pdf = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download approved PDF" }).click();
+  expect((await pdf).suggestedFilename()).toBe(
+    "countertop-approved-report.pdf",
+  );
+});
+
+test("global backsplash tool adds to different pieces until OK and draws filled panels", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Explore a sample/ }).click();
+  await page
+    .getByRole("button", { name: "Backsplash tool", exact: true })
+    .click();
+  await page.getByLabel("Backsplash height (inches)").fill("4");
+  const island = page.getByRole("button", {
+    name: "Add backsplash to Kitchen island, edge 1",
+    exact: true,
+  });
+  await island.focus();
+  await island.press("Enter");
+  await expect(page.locator(".piece-row")).toHaveCount(4);
+  await expect(
+    page.getByRole("button", { name: "Backsplash tool", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".backsplash-panel")).toHaveCount(1);
+  await island.focus();
+  await island.press("Enter");
+  await expect(page.getByRole("alert")).toContainText("already has");
+  await expect(page.locator(".piece-row")).toHaveCount(4);
+  const main = page.getByRole("button", {
+    name: "Add backsplash to Main kitchen run, edge 1",
+    exact: true,
+  });
+  await main.focus();
+  await main.press("Enter");
+  await expect(page.locator(".piece-row")).toHaveCount(5);
+  await expect(page.locator(".backsplash-panel")).toHaveCount(2);
+  await expect(page.locator(".bottom-summary")).toContainText("8.33");
+  await page
+    .getByRole("button", { name: /Kitchen island backsplash 1/ })
+    .click();
+  await expect(page.locator(".backsplash-edge-hit")).toHaveCount(10);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.locator(".backsplash-edge-hit")).toHaveCount(0);
+  await expect(page.locator(".backsplash-panel").first()).toHaveAttribute(
+    "fill",
+    /#/,
+  );
+  await page
+    .locator('svg[aria-label="Interactive drawing annotations"]')
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "/tmp/countertop-filled-backsplash.png",
+    fullPage: true,
+  });
+});
+test("an imported piece can change category after approval without changing its geometry", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  await page
+    .locator("input[type=file]")
+    .first()
+    .setInputFiles("public/examples/shared-border-curved-counter.dxf");
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Select all", exact: true }).click();
+  await dialog.getByLabel(/I verified the drawing units/).check();
+  await dialog.getByRole("button", { name: "Import measured pieces" }).click();
+  await page
+    .getByRole("button", { name: "Review & approve", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Approve project snapshot" }).click();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page
+    .getByLabel("Surface category", { exact: true })
+    .selectOption("waterfall");
+  await expect(
+    page.getByText("Unapproved draft", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".bottom-summary")).toContainText("16.65");
+  await expect(
+    page.locator(
+      'svg[aria-label="Interactive drawing annotations"] path[d*="A"]',
+    ),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Reports", exact: true }).click();
+  await expect(
+    page.locator(".report-row").filter({ hasText: "waterfall" }).last(),
+  ).toContainText("16.65");
+  await expect(
+    page.getByRole("button", { name: "Download approved PDF" }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  await page
+    .getByLabel("Surface category", { exact: true })
+    .selectOption("backsplash");
+  await expect(page.locator(".bottom-summary")).toContainText(
+    ((2400 - 9 + (9 * Math.PI) / 4 + 372) / 144).toFixed(2),
+  );
 });

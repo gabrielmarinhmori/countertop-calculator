@@ -125,13 +125,19 @@ In DXF review, **Select all** includes every detected region; **Clear selection*
 
 Double-click a region's name to rename it before import. After import, double-click a name in the piece list or its drawing label. The existing **Piece name** field remains available for mobile/keyboard editing. Renaming an existing project piece invalidates project approval.
 
-## Create a backsplash by clicking a measured edge
+## Persistent backsplash drawing tool
 
-1. Select a horizontal countertop with valid physical measurements. A PNG/PDF polygon still needs a verified scale; pixels alone cannot supply length.
-2. In **Piece details → Add back / side splash**, enter **Backsplash height (inches)**, such as `4`, `5`, or `5 1/2`. No height is applied silently.
-3. Click **Choose backsplash edge**, then click an amber highlighted edge in the drawing. Keyboard users can focus an edge and press Enter/Space. One panel is created per click; repeating the same source edge is blocked so you can edit the existing panel instead.
-4. A separate Backsplash piece is created with `length = measured edge length` and `area = length × height × quantity / 144`. Circular edges use radius × absolute sweep for developed panel length; they are not measured as straight chords. No waste or joint allowances are added.
-5. The overlay marks the attachment edge rather than drawing a misleading flat-panel footprint on the countertop. The height can be edited in the new panel's details. Its inherited length and drawing reference are read-only.
-6. Changing source measurements automatically refreshes linked panel lengths and totals, and invalidates approval. Removing the source or changing its number of edges blocks approval; delete and recreate the affected panel on the correct edge. Backups preserve the source relationship and remap source IDs on restore.
+1. Open **Backsplash tool** in the drawing viewer's upper-right toolbar. You do not need to select a piece first. Enter **Backsplash height (inches)**, such as `4`, `5`, or `5 1/2`; no height is applied silently.
+2. Every valid measured horizontal countertop in the active drawing has highlighted edges. Click edges on any of those pieces, or focus an edge and press Enter/Space. Missing dimensions / unverified image scales do not supply measurements. You can select different pieces or switch drawings while the tool remains active.
+3. Keep clicking to create more panels. The tool stays active after each addition and after a duplicate-edge warning. Click **OK**, press Escape, select another drawing tool, or leave the workspace to stop. Repeating an edge that already has a linked panel does not create another panel.
+4. Straight-edge panels are drawn as filled rectangles outside the source boundary, using the entered physical height at the source's drawing scale. Curved edges display an unfolded rectangular elevation near the arc, with a connector to that arc. They use developed arc length, not the chord. These are schematic vertical faces, not horizontal material footprints or CNC layouts. Automatic view/export bounds include panels that extend outside the original image.
+5. Each panel has its own piece, name, height, quantity, and category. Area remains `measured edge length × height × quantity / 144`, separate from countertop square footage. No waste or joint allowances are added. Height is editable in the panel's details; inherited length/drawing reference remain linked.
+6. Editing source dimensions refreshes linked panel lengths, drawings, and totals, and invalidates approval. Removing the source or changing its edge topology blocks approval; delete and recreate affected linked panels on the correct edge. Backup/restore preserves the relationships.
 
-This tool does not detect whether an independently drawn/imported backsplash already covers the selected edge. Review existing material pieces before creating another panel. Topology changes are not guessed; arbitrary vertical profiles, gaps, fabrication miters, and curved panel manufacturability need manual review.
+PNG exports and PDF drawing pages show the same filled panels and curved-edge connectors as the workspace. Independently drawn/imported splash regions are not automatically matched to generated panels; review existing material before adding another panel on an already represented edge. Visual overlaps between unfolded elevations are not material-union calculations. Curved panel manufacturability, arbitrary vertical profiles, and fabrication miters still need manual review.
+
+## Change a piece category after import
+
+Select a piece and use **Piece details → Surface category** to choose **Countertop**, **Back / side splash**, or **Waterfall**. The existing dimensions and curved geometry are retained; category totals are recalculated from unrounded areas. Changing category invalidates project approval and resets placement confirmation, so review the project again before exporting an official report.
+
+A linked vertical panel may be reclassified as waterfall while retaining its measured source edge. Converting it to countertop detaches the vertical-panel link and makes it an independent rectangular surface requiring placement review. If a source countertop is reclassified as a vertical category, dependent linked panels become invalid rather than silently using a non-countertop source; delete/recreate those panels or restore their source category.

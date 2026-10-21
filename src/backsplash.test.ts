@@ -135,3 +135,89 @@ it("remaps source IDs through backup restore", () => {
   expect(r.pieces[1].edgeSource?.pieceId).not.toBe(p.pieces[0].id);
   expect(sqft(totals(r).backsplash)).toBe("2.67");
 });
+
+it("draws a filled straight panel with the entered physical height", async () => {
+  const { linkedDrawingPanel, annotationFrame } = await import("./annotations");
+  const { polygonArea } = await import("./engine");
+  const p = projectWithCounter();
+  p.pieces[0].annotation = [80, 3];
+  const panel = createEdgeBacksplash(p, p.pieces[0].id, 0, "5");
+  p.pieces.push(panel);
+  const view = linkedDrawingPanel(p, panel)!;
+  expect(view.kind).toBe("attached");
+  expect(
+    polygonArea(view.boundary.map((e) => e.start))
+      .div(4)
+      .toNumber(),
+  ).toBe(96 * 5);
+  expect(annotationFrame(p, "", 1000, 650).y).toBeLessThan(0);
+});
+it("draws a dimensionally accurate developed rectangle for an arc panel", async () => {
+  const { linkedDrawingPanel } = await import("./annotations");
+  const { polygonArea } = await import("./engine");
+  const boundary: CadEdge[] = [
+    {
+      start: [-10, 0],
+      end: [10, 0],
+      center: [0, 0],
+      radius: 10,
+      sweep: Math.PI,
+    },
+    { start: [10, 0], end: [-10, 0] },
+  ];
+  const p = makeProject();
+  p.pieces = [
+    {
+      ...makePiece("Polygon"),
+      boundary,
+      points: sampleBoundary(boundary),
+      scale: "2",
+      scaleConfirmed: true,
+    },
+  ];
+  p.pieces.push(createEdgeBacksplash(p, p.pieces[0].id, 0, "4"));
+  const view = linkedDrawingPanel(p, p.pieces[1])!;
+  expect(view.kind).toBe("developed");
+  expect(view.connector).toBeDefined();
+  expect(
+    polygonArea(view.boundary.map((e) => e.start))
+      .times(4)
+      .toNumber(),
+  ).toBeCloseTo(80 * Math.PI);
+});
+it("changes imported polygon category without changing geometry or area", async () => {
+  const { changePieceSurface, pieceArea } = await import("./engine");
+  const p = makeProject();
+  p.pieces = [
+    {
+      ...makePiece("Polygon"),
+      points: [
+        [0, 0],
+        [96, 0],
+        [96, 25],
+        [0, 25],
+      ],
+      scale: "1",
+      scaleConfirmed: true,
+    },
+  ];
+  const before = pieceArea(p.pieces[0]).toString();
+  p.approved = { at: "now", fingerprint: fingerprint(p) };
+  const r = changePieceSurface(p, p.pieces[0].id, "backsplash");
+  expect(pieceArea(r.pieces[0]).toString()).toBe(before);
+  expect(sqft(totals(r).horizontal)).toBe("0.00");
+  expect(sqft(totals(r).backsplash)).toBe("16.67");
+  expect(r.approved).toBeUndefined();
+  expect(r.placementConfirmed).toBe(false);
+});
+it("keeps linked panels valid when reclassified as waterfall and detaches when made horizontal", async () => {
+  const { changePieceSurface } = await import("./engine");
+  const p = projectWithCounter();
+  p.pieces.push(createEdgeBacksplash(p, p.pieces[0].id, 0, "4"));
+  const waterfall = changePieceSurface(p, p.pieces[1].id, "waterfall");
+  expect(sqft(totals(waterfall).waterfall)).toBe("2.67");
+  expect(waterfall.pieces[1].edgeSource).toBeDefined();
+  const horizontal = changePieceSurface(p, p.pieces[1].id, "horizontal");
+  expect(horizontal.pieces[1].edgeSource).toBeUndefined();
+  expect(sqft(totals(horizontal).horizontal)).toBe("19.67");
+});
