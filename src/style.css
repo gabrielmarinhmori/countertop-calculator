@@ -1378,3 +1378,31 @@ input[readonly] {
   margin-left: auto;
   margin-right: 15px;
 }
+.splash-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  background: #faf6e9;
+  border-block: 1px solid #ebe1c7;
+  padding: 13px 16px;
+}
+.splash-toolbar label {
+  margin: 0;
+  max-width: 220px;
+  flex: 1;
+  font-size: 11px;
+}
+.splash-toolbar button {
+  margin-top: 15px;
+}
+.splash-toolbar p {
+  width: 100%;
+  font-size: 10px;
+  margin: 0;
+  color: #8f774e;
+  line-height: 1.7;
+}
+.backsplash-panel {
+  cursor: pointer;
+}

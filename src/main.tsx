@@ -1,4 +1,10 @@
-import { drawingEdges, linkedDrawingEdge } from "./annotations";
+import {
+  drawingEdges,
+  linkedDrawingEdge,
+  linkedDrawingPanel,
+  annotationFrame,
+  panelLabelPoint,
+} from "./annotations";
 import { boundaryPath } from "./cad-curves";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -45,6 +51,7 @@ import {
   category,
   createEdgeBacksplash,
   refreshEdgeBacksplashes,
+  changePieceSurface,
 } from "./engine";
 import { listProjects, saveProject, deleteProject } from "./storage";
 import { importDrawing } from "./files";
@@ -209,24 +216,42 @@ export default function App() {
   }
   const piece = project?.pieces.find((p) => p.id === selected);
   const drawing = project?.drawings.find((d) => d.id === drawingId);
-  useEffect(() => setChoosingSplashEdge(false), [selected, drawingId]);
-  let splashEdges: ReturnType<typeof drawingEdges> = [];
-  if (choosingSplashEdge && piece && category(piece) === "horizontal") {
+  useEffect(() => setChoosingSplashEdge(false), [project?.id, tab]);
+  useEffect(() => {
+    if (!choosingSplashEdge) return;
+    const stop = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setChoosingSplashEdge(false);
+    };
+    window.addEventListener("keydown", stop);
+    return () => window.removeEventListener("keydown", stop);
+  }, [choosingSplashEdge]);
+  const splashEdges =
+    choosingSplashEdge && project
+      ? project.pieces
+          .filter(
+            (p) =>
+              p.drawingId === drawingId &&
+              category(p) === "horizontal" &&
+              !p.edgeSource,
+          )
+          .flatMap((p) => {
+            try {
+              return drawingEdges(p).map((edge, index) => ({
+                edge,
+                index,
+                pieceId: p.id,
+                name: p.name,
+              }));
+            } catch {
+              return [];
+            }
+          })
+      : [];
+  function addSplashEdge(pieceId: string, index: number) {
+    if (!project) return;
     try {
-      splashEdges = drawingEdges(piece);
-    } catch {}
-  }
-  function addSplashEdge(index: number) {
-    if (!project || !piece) return;
-    try {
-      const panel = createEdgeBacksplash(
-        project,
-        piece.id,
-        index,
-        splashHeight,
-      );
+      const panel = createEdgeBacksplash(project, pieceId, index, splashHeight);
       edit({ ...project, pieces: [...project.pieces, panel] });
-      setChoosingSplashEdge(false);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -328,8 +353,16 @@ export default function App() {
         });
     }
   }
-  const viewWidth = drawing?.width || 1000,
-    viewHeight = drawing?.height || 650;
+  const frame = project
+    ? annotationFrame(
+        project,
+        drawingId,
+        drawing?.width || 1000,
+        drawing?.height || 650,
+      )
+    : { x: 0, y: 0, width: 1000, height: 650 };
+  const viewWidth = frame.width,
+    viewHeight = frame.height;
   return (
     <div className="app">
       <aside className="rail">
@@ -677,28 +710,51 @@ export default function App() {
                         <button
                           title="Select / move annotation"
                           className={tool === "select" ? "selected" : ""}
-                          onClick={() => setTool("select")}
+                          onClick={() => {
+                            setChoosingSplashEdge(false);
+                            setTool("select");
+                          }}
                         >
                           <MousePointer2 size={17} />
                         </button>
                         <button
                           title="Pan"
                           className={tool === "pan" ? "selected" : ""}
-                          onClick={() => setTool("pan")}
+                          onClick={() => {
+                            setChoosingSplashEdge(false);
+                            setTool("pan");
+                          }}
                         >
                           <Move size={17} />
                         </button>
                         <button
                           title="Add polygon vertices"
                           className={tool === "polygon" ? "selected" : ""}
-                          onClick={() => setTool("polygon")}
+                          onClick={() => {
+                            setChoosingSplashEdge(false);
+                            setTool("polygon");
+                          }}
                         >
                           <PenTool size={17} />
+                        </button>
+                        <button
+                          title="Backsplash tool"
+                          aria-pressed={choosingSplashEdge}
+                          className={choosingSplashEdge ? "selected" : ""}
+                          onClick={() => {
+                            setTool("select");
+                            setChoosingSplashEdge(true);
+                            setCalibration([]);
+                            setError("");
+                          }}
+                        >
+                          <PanelTop size={17} />
                         </button>
                         <button
                           title="Calibrate drawing scale"
                           className={tool === "calibrate" ? "selected" : ""}
                           onClick={() => {
+                            setChoosingSplashEdge(false);
                             setTool("calibrate");
                             setCalibration([]);
                           }}
@@ -707,10 +763,38 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    {choosingSplashEdge && (
+                      <div
+                        className="splash-toolbar"
+                        role="region"
+                        aria-label="Backsplash tool controls"
+                      >
+                        <label>
+                          Backsplash height (inches)
+                          <input
+                            placeholder="e.g. 4 or 5 1/2"
+                            value={splashHeight}
+                            onChange={(e) => setSplashHeight(e.target.value)}
+                          />
+                        </label>
+                        <button
+                          className="primary"
+                          onClick={() => setChoosingSplashEdge(false)}
+                        >
+                          OK
+                        </button>
+                        <p role="status">
+                          Click highlighted edges on any measured countertop.
+                          Keep adding until OK or Escape. Red strips show panel
+                          height; curved edges show an unfolded panel. Review
+                          panels already present to avoid counting them twice.
+                        </p>
+                      </div>
+                    )}
                     <div className="canvas-wrap">
                       <svg
                         ref={svgRef}
-                        viewBox={`0 0 ${viewWidth} ${viewHeight}`}
+                        viewBox={`${frame.x} ${frame.y} ${viewWidth} ${viewHeight}`}
                         aria-label="Interactive drawing annotations"
                         onPointerDown={pointerDown}
                         onPointerMove={pointerMove}
@@ -762,12 +846,13 @@ export default function App() {
                             .filter((p) => p.drawingId === drawingId)
                             .map((p) => {
                               const attached = linkedDrawingEdge(project, p);
+                              const panel = linkedDrawingPanel(project, p);
                               if (p.edgeSource && !attached) return null;
                               let pts: Point[];
                               let valid = true;
                               try {
-                                pts = attached
-                                  ? [attached.start, attached.end]
+                                pts = panel
+                                  ? panel.boundary.map((e) => e.start)
                                   : p.shape === "Polygon"
                                     ? p.points
                                     : geometry(p).map(([x, y]) => [
@@ -793,13 +878,18 @@ export default function App() {
                                         [p.annotation[0], p.annotation[1] + 65],
                                       ];
                               }
+                              const labelPoint = panel
+                                ? panelLabelPoint(panel)
+                                : pts[0];
                               const color = !valid
                                 ? "#b55745"
                                 : p.defaultUsed && !p.defaultConfirmed
                                   ? "#b5882e"
                                   : category(p) === "backsplash"
                                     ? "#b75647"
-                                    : "#25745d";
+                                    : category(p) === "waterfall"
+                                      ? "#536fab"
+                                      : "#25745d";
                               return (
                                 <g
                                   key={p.id}
@@ -822,17 +912,28 @@ export default function App() {
                                     }
                                   }}
                                 >
-                                  {attached ? (
-                                    <path
-                                      d={boundaryPath([attached]).replace(
-                                        / Z$/,
-                                        "",
+                                  {panel ? (
+                                    <g>
+                                      <path
+                                        className="backsplash-panel"
+                                        data-panel-kind={panel.kind}
+                                        d={boundaryPath(panel.boundary)}
+                                        fill={`${color}35`}
+                                        stroke={color}
+                                        strokeWidth={
+                                          p.id === selected ? 3 : 1.5
+                                        }
+                                        vectorEffect="non-scaling-stroke"
+                                      />
+                                      {panel.connector && (
+                                        <path
+                                          d={`M${panel.connector[0].join(" ")} L${panel.connector[1].join(" ")}`}
+                                          stroke={color}
+                                          strokeDasharray="4 3"
+                                          vectorEffect="non-scaling-stroke"
+                                        />
                                       )}
-                                      fill="none"
-                                      stroke={color}
-                                      strokeWidth={p.id === selected ? 6 : 4}
-                                      vectorEffect="non-scaling-stroke"
-                                    />
+                                    </g>
                                   ) : p.boundary ? (
                                     <path
                                       d={boundaryPath(p.boundary)}
@@ -857,8 +958,13 @@ export default function App() {
                                   )}
                                   {pts[0] && (
                                     <text
-                                      x={pts[0][0]}
-                                      y={Math.max(18, pts[0][1] - 12)}
+                                      x={labelPoint[0]}
+                                      y={
+                                        panel
+                                          ? labelPoint[1]
+                                          : Math.max(18, labelPoint[1] - 12)
+                                      }
+                                      textAnchor={panel ? "middle" : "start"}
                                       fontSize={Math.max(14, viewWidth / 65)}
                                       fill={color}
                                       onDoubleClick={(e) => {
@@ -869,16 +975,19 @@ export default function App() {
                                       {p.name} · {safeArea(p)} sq ft
                                     </text>
                                   )}
-                                  {valid && p.shape !== "Polygon" && pts[0] && (
-                                    <text
-                                      x={pts[0][0] + 8}
-                                      y={pts[0][1] + 22}
-                                      fontSize={Math.max(10, viewWidth / 90)}
-                                      fill={color}
-                                    >
-                                      {dimensions(p)}
-                                    </text>
-                                  )}
+                                  {valid &&
+                                    !p.edgeSource &&
+                                    p.shape !== "Polygon" &&
+                                    pts[0] && (
+                                      <text
+                                        x={pts[0][0] + 8}
+                                        y={pts[0][1] + 22}
+                                        fontSize={Math.max(10, viewWidth / 90)}
+                                        fill={color}
+                                      >
+                                        {dimensions(p)}
+                                      </text>
+                                    )}
                                   {p.shape === "Polygon" &&
                                     !p.boundary &&
                                     p.id === selected &&
@@ -918,37 +1027,39 @@ export default function App() {
                               );
                             })}
                           {choosingSplashEdge &&
-                            piece &&
-                            splashEdges.map((edge, index) => (
-                              <path
-                                key={`splash-edge-${index}`}
-                                className="backsplash-edge-hit"
-                                d={boundaryPath([edge]).replace(/ Z$/, "")}
-                                fill="none"
-                                stroke="#d18435"
-                                strokeOpacity={0.35}
-                                strokeWidth={14}
-                                vectorEffect="non-scaling-stroke"
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`Add backsplash to ${piece.name}, edge ${index + 1}`}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  addSplashEdge(index);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    addSplashEdge(index);
-                                  }
-                                }}
-                              >
-                                <title>
-                                  Click to create backsplash on edge {index + 1}
-                                </title>
-                              </path>
-                            ))}
+                            splashEdges.map(
+                              ({ edge, index, pieceId, name }) => (
+                                <path
+                                  key={`splash-edge-${pieceId}-${index}`}
+                                  className="backsplash-edge-hit"
+                                  d={boundaryPath([edge]).replace(/ Z$/, "")}
+                                  fill="none"
+                                  stroke="#d18435"
+                                  strokeOpacity={0.35}
+                                  strokeWidth={14}
+                                  vectorEffect="non-scaling-stroke"
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={`Add backsplash to ${name}, edge ${index + 1}`}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addSplashEdge(pieceId, index);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      addSplashEdge(pieceId, index);
+                                    }
+                                  }}
+                                >
+                                  <title>
+                                    Click to create backsplash on edge{" "}
+                                    {index + 1}
+                                  </title>
+                                </path>
+                              ),
+                            )}
                           {calibration.length > 0 && (
                             <g stroke="#bc7437" fill="#bc7437">
                               {calibration.map(([x, y], i) => (
@@ -1147,6 +1258,39 @@ export default function App() {
                           </button>
                         </div>
                         <label>
+                          Surface category
+                          <select
+                            aria-label="Surface category"
+                            value={category(piece)}
+                            onChange={(e) => {
+                              try {
+                                edit(
+                                  changePieceSurface(
+                                    project,
+                                    piece.id,
+                                    e.target.value as
+                                      "horizontal" | "backsplash" | "waterfall",
+                                  ),
+                                );
+                                setError("");
+                              } catch (error) {
+                                setError((error as Error).message);
+                              }
+                            }}
+                          >
+                            <option value="horizontal">Countertop</option>
+                            <option value="backsplash">
+                              Back / side splash
+                            </option>
+                            <option value="waterfall">Waterfall</option>
+                          </select>
+                        </label>
+                        <p className="help">
+                          Changing category updates the totals and requires a
+                          new review. Converting a linked vertical panel to
+                          countertop makes it independent.
+                        </p>
+                        <label>
                           Piece name
                           <input
                             value={piece.name}
@@ -1187,7 +1331,10 @@ export default function App() {
                             </p>
                             <button
                               disabled={!!piece.boundary}
-                              onClick={() => setTool("polygon")}
+                              onClick={() => {
+                                setChoosingSplashEdge(false);
+                                setTool("polygon");
+                              }}
                             >
                               <PenTool size={14} /> Draw polygon
                             </button>
@@ -1414,58 +1561,10 @@ export default function App() {
                           <p className="help">
                             Length follows edge {piece.edgeSource.edgeIndex + 1}{" "}
                             of its source countertop. Edit the height here. The
-                            drawing marks its attachment edge, not a flat panel
+                            drawing shows a schematic elevation strip. Curved
+                            edges use an unfolded panel, not a horizontal
                             footprint.
                           </p>
-                        )}
-                        {category(piece) === "horizontal" && (
-                          <section className="backsplash-controls">
-                            <div className="section-label">
-                              ADD BACK / SIDE SPLASH
-                            </div>
-                            <label>
-                              Backsplash height (inches)
-                              <input
-                                placeholder="e.g. 4 or 5 1/2"
-                                value={splashHeight}
-                                onChange={(e) =>
-                                  setSplashHeight(e.target.value)
-                                }
-                              />
-                            </label>
-                            <button
-                              onClick={() => {
-                                try {
-                                  inches(splashHeight);
-                                  pieceArea(piece);
-                                  setTool("select");
-                                  setChoosingSplashEdge((v) => !v);
-                                  if (!choosingSplashEdge)
-                                    svgRef.current?.scrollIntoView({
-                                      block: "center",
-                                    });
-                                  setError("");
-                                } catch (e) {
-                                  setError((e as Error).message);
-                                }
-                              }}
-                            >
-                              {choosingSplashEdge
-                                ? "Cancel edge selection"
-                                : "Choose backsplash edge"}
-                            </button>
-                            <p className="help">
-                              Enter the height, then click a highlighted
-                              measured edge. Length × height is added only to
-                              backsplash. Curved edges use arc length. Avoid
-                              adding panels already imported from CAD.
-                            </p>
-                            {choosingSplashEdge && (
-                              <p role="status">
-                                Click a highlighted edge in the drawing.
-                              </p>
-                            )}
-                          </section>
                         )}
                         <div className="piece-total">
                           <span>Piece surface area</span>

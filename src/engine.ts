@@ -402,7 +402,7 @@ function sourceForPanel(project: Project, p: Piece): Piece {
   const source = project.pieces.find((s) => s.id === link.pieceId);
   if (
     p.shape !== "Backsplash" ||
-    category(p) !== "backsplash" ||
+    !["backsplash", "waterfall"].includes(category(p)) ||
     !source ||
     category(source) !== "horizontal" ||
     source.edgeSource
@@ -473,4 +473,32 @@ export function createEdgeBacksplash(
     width: height,
     edgeSource: { pieceId, edgeIndex, edgeCount: edges.length },
   };
+}
+
+export function changePieceSurface(
+  project: Project,
+  pieceId: string,
+  surface: "horizontal" | "backsplash" | "waterfall",
+): Project {
+  if (!["horizontal", "backsplash", "waterfall"].includes(surface))
+    throw Error("Choose a valid surface category.");
+  if (!project.pieces.some((p) => p.id === pieceId))
+    throw Error("Piece not found.");
+  return refreshEdgeBacksplashes({
+    ...project,
+    approved: undefined,
+    placement: "unresolved",
+    placementConfirmed: false,
+    pieces: project.pieces.map((p) =>
+      p.id === pieceId
+        ? {
+            ...p,
+            surface,
+            ...(surface === "horizontal" && p.edgeSource
+              ? { edgeSource: undefined }
+              : {}),
+          }
+        : p,
+    ),
+  });
 }

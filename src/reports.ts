@@ -1,4 +1,9 @@
-import { linkedDrawingEdge } from "./annotations";
+import {
+  linkedDrawingEdge,
+  linkedDrawingPanel,
+  annotationFrame,
+  panelLabelPoint,
+} from "./annotations";
 import { boundaryPath } from "./cad-curves";
 import { jsPDF } from "jspdf";
 import {
@@ -22,9 +27,18 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   const drawing = project.drawings.find((d) => d.id === drawingId);
   if (!drawing) throw Error("Select an uploaded drawing first.");
   const canvas = document.createElement("canvas");
-  canvas.width = drawing.width;
-  canvas.height = drawing.height;
+  const frame = annotationFrame(
+    project,
+    drawingId,
+    drawing.width,
+    drawing.height,
+  );
+  canvas.width = frame.width;
+  canvas.height = frame.height;
   const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(-frame.x, -frame.y);
   ctx.drawImage(await loadImage(drawing.data), 0, 0);
   const size = Math.max(14, drawing.width / 70);
   ctx.lineWidth = Math.max(2, drawing.width / 600);
@@ -32,8 +46,9 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   for (const p of project.pieces.filter((p) => p.drawingId === drawingId)) {
     try {
       const attached = linkedDrawingEdge(project, p);
-      const pts = attached
-        ? [attached.start, attached.end]
+      const panel = linkedDrawingPanel(project, p);
+      const pts = panel
+        ? panel.boundary.map((e) => e.start)
         : p.shape === "Polygon"
           ? p.points
           : geometry(p).map(([x, y]) => [
@@ -43,21 +58,42 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
       ctx.beginPath();
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.closePath();
-      ctx.fillStyle = "#2d947733";
-      if (!attached) {
-        if (p.boundary) ctx.fill(new Path2D(boundaryPath(p.boundary)));
-        else ctx.fill();
+      const color =
+        category(p) === "backsplash"
+          ? "#b75647"
+          : category(p) === "waterfall"
+            ? "#536fab"
+            : "#176651";
+      ctx.fillStyle = color + "33";
+      ctx.strokeStyle = color;
+      if (panel) {
+        const path = new Path2D(boundaryPath(panel.boundary));
+        ctx.fill(path);
+        ctx.stroke(path);
+        if (panel.connector) {
+          ctx.save();
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(...panel.connector[0]);
+          ctx.lineTo(...panel.connector[1]);
+          ctx.stroke();
+          ctx.restore();
+        }
+      } else if (p.boundary) {
+        const path = new Path2D(boundaryPath(p.boundary));
+        ctx.fill(path);
+        ctx.stroke(path);
+      } else {
+        ctx.fill();
+        ctx.stroke();
       }
-      ctx.strokeStyle = attached ? "#b75647" : "#176651";
-      if (attached)
-        ctx.stroke(new Path2D(boundaryPath([attached]).replace(/ Z$/, "")));
-      else if (p.boundary) ctx.stroke(new Path2D(boundaryPath(p.boundary)));
-      else ctx.stroke();
       ctx.fillStyle = "#102e27";
+      const labelPoint = panel ? panelLabelPoint(panel) : pts[0];
+      ctx.textAlign = panel ? "center" : "left";
       ctx.fillText(
         `${p.name} · ${dimensions(p)} · ${sqft(pieceArea(p))} sq ft`,
-        pts[0][0],
-        Math.max(size, pts[0][1] - size / 2),
+        labelPoint[0],
+        panel ? labelPoint[1] : Math.max(size, labelPoint[1] - size / 2),
       );
     } catch {
       /* Invalid draft pieces are not exported in approved reports. */
