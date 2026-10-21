@@ -1,3 +1,4 @@
+import { linearCut, polishedLength, visibleEdges } from "./cutting";
 import {
   drawingEdges,
   linkedDrawingPanel,
@@ -13,9 +14,7 @@ import {
   category,
   sqft,
   totals,
-  isApproved,
   dimension,
-  linearCut,
 } from "./engine";
 import { loadImage } from "./files";
 export function dimensions(p: Piece): string {
@@ -90,8 +89,16 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
         ctx.fill();
         ctx.stroke();
       }
+      const edges = visibleEdges(project, p);
+      ctx.strokeStyle = "#159447";
+      ctx.lineWidth = Math.max(4, drawing.width / 400);
+      for (const i of p.polishedEdges || []) {
+        if (edges[i])
+          ctx.stroke(new Path2D(boundaryPath([edges[i]]).replace(/ Z$/, "")));
+      }
+      ctx.lineWidth = Math.max(2, drawing.width / 600);
     } catch {
-      /* Invalid draft pieces are not exported in approved reports. */
+      /* Invalid dimensions are rejected by the report totals. */
     }
   }
   return canvas;
@@ -105,8 +112,8 @@ export function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export async function exportReport(p: Project) {
-  if (!isApproved(p))
-    throw Error("Approve this project before generating an official report.");
+  if (!p.pieces.length)
+    throw Error("Add at least one measured piece before exporting.");
   const pdf = new jsPDF();
   let y = 24;
   const line = (text: string, size = 11) => {
@@ -128,8 +135,13 @@ export async function exportReport(p: Project) {
   line(`Backsplash: ${sqft(t.backsplash)} sq ft`);
   if (!t.waterfall.isZero()) line(`Waterfall: ${sqft(t.waterfall)} sq ft`);
   line(`Linear cut: ${cut.div(12).toFixed(2)} ft / ${cut.toFixed(2)} in`, 13);
+  const polished = polishedLength(p);
   line(
-    "Linear cut estimates all piece perimeters, including quantities and arcs. Shared edges count per piece. No overcut or machine travel included.",
+    `Polished edges: ${polished.div(12).toFixed(2)} ft / ${polished.toFixed(2)} in`,
+    13,
+  );
+  line(
+    "Coincident cutting edges in each drawing count once. No overcut or machine travel included.",
     9,
   );
   line("Gross areas include openings. No waste added.", 9);
@@ -152,5 +164,5 @@ export async function exportReport(p: Project) {
       c.height * ratio,
     );
   }
-  pdf.save("countertop-approved-report.pdf");
+  pdf.save("countertop-report.pdf");
 }

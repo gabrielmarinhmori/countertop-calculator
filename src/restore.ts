@@ -76,6 +76,16 @@ export function restoreProject(value: unknown): Project {
       throw Error("Invalid or duplicate piece identifier.");
     const result = makePiece(p.shape);
     idMap.set(p.id, result.id);
+    if (
+      p.polishedEdges !== undefined &&
+      (!Array.isArray(p.polishedEdges) ||
+        !Number.isInteger(p.polishedEdgeCount) ||
+        p.polishedEdgeCount! < 2 ||
+        p.polishedEdges.some(
+          (i) => !Number.isInteger(i) || i < 0 || i >= p.polishedEdgeCount!,
+        ))
+    )
+      throw Error("Invalid polished edges in backup.");
     if (p.edgeSource) {
       const link = p.edgeSource;
       if (
@@ -119,6 +129,12 @@ export function restoreProject(value: unknown): Project {
       ...(p.surface ? { surface: p.surface } : {}),
       ...(p.edgeSource ? { edgeSource: { ...p.edgeSource } } : {}),
       ...(p.boundary ? { boundary: structuredClone(p.boundary) } : {}),
+      ...(p.polishedEdges
+        ? {
+            polishedEdges: [...p.polishedEdges],
+            polishedEdgeCount: p.polishedEdgeCount,
+          }
+        : {}),
       name: p.name,
       points: p.points,
       annotation: p.annotation,

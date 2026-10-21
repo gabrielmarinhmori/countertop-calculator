@@ -1,11 +1,7 @@
+import { linearCut } from "./cutting";
 import { sampleBoundary } from "./cad-curves";
 import { describe, expect, it } from "vitest";
-import {
-  linearCut,
-  makePiece,
-  makeProject,
-  createEdgeBacksplash,
-} from "./engine";
+import { makePiece, makeProject, createEdgeBacksplash } from "./engine";
 const rectangle = () => ({
   ...makePiece("Island"),
   length: "96",
@@ -14,7 +10,7 @@ const rectangle = () => ({
 describe("gross linear cutting estimate", () => {
   it("sums each piece perimeter, including repeated shared edges", () => {
     const p = makeProject();
-    p.pieces = [rectangle(), rectangle()];
+    p.pieces = [rectangle(), { ...rectangle(), annotation: [400, 80] }];
     expect(linearCut(p).toNumber()).toBe(486);
     expect(linearCut(p).div(12).toNumber()).toBe(40.5);
   });
@@ -23,7 +19,7 @@ describe("gross linear cutting estimate", () => {
     p.pieces = [rectangle()];
     p.pieces.push(createEdgeBacksplash(p, p.pieces[0].id, 0, "4"));
     p.pieces[1].quantity = 2;
-    expect(linearCut(p).toNumber()).toBe(243 + 200 * 2);
+    expect(linearCut(p).toNumber()).toBe(243 + 200 * 2 - 96);
   });
   it("uses analytical arc length at the confirmed scale", () => {
     const p = makeProject();

@@ -67,10 +67,10 @@ export function DxfImport({
         <h2 id="dxf-title">Review DXF boundaries</h2>
         <p>
           {review.name}. Shared borders and circular arcs are reconstructed into
-          enclosed regions. White/yellow suggest countertops; red suggests
-          back/side splash. Check each category and select only physical
-          surfaces. Do not select sink/cooktop openings or small accidental
-          regions.
+          enclosed regions. Green edges are imported as polished edges.
+          White/yellow suggest countertops; red suggests back/side splash. Check
+          each category and select only physical surfaces. Do not select
+          sink/cooktop openings or small accidental regions.
         </p>
         <p className="help">
           Arcs use analytical circular-segment areas. Display samples do not

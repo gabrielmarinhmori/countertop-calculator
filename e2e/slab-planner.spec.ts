@@ -4,7 +4,7 @@ test.beforeEach(async ({ page }) => {
     r.fulfill({ json: { version: 1, enabled: false } }),
   );
 });
-test("separate slab workspace packs with rotation and persists settings without invalidating approval", async ({
+test("separate slab workspace packs with rotation and persists settings and preserves measurements", async ({
   page,
 }) => {
   await page.goto("/");
@@ -18,10 +18,6 @@ test("separate slab workspace packs with rotation and persists settings without 
   await dialog.getByLabel(/I verified the drawing units/).check();
   await dialog.getByRole("button", { name: "Import measured pieces" }).click();
   await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await page
     .getByRole("button", { name: "Slab planning", exact: true })
     .click();
   await page.getByLabel("Slab length (inches)").fill("30");
@@ -31,9 +27,7 @@ test("separate slab workspace packs with rotation and persists settings without 
     "1 slab in this layout",
   );
   await expect(page.locator(".slab-legend")).toContainText("90°");
-  await expect(
-    page.getByText("Approved snapshot", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Local project", { exact: true })).toBeVisible();
   await page.getByLabel("Lock rotation", { exact: true }).check();
   await expect(page.getByRole("status")).toContainText("Recalculate");
   await page.getByRole("button", { name: "Calculate slab layout" }).click();
