@@ -22,12 +22,24 @@ export function DxfImport({
     [selected, setSelected] = useState<number[]>([]),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState("");
+  const [names, setNames] = useState(review.contours.map((c) => c.name));
+  const rename = (i: number) => {
+    const name = prompt("Piece name", names[i]);
+    if (name?.trim()) {
+      setNames((prev) => prev.map((v, k) => (k === i ? name.trim() : v)));
+      setConfirmed(false);
+    }
+  };
   const [surfaces, setSurfaces] = useState(
     review.contours.map((c) => c.surface || "horizontal"),
   );
   const adjusted = {
     ...review,
-    contours: review.contours.map((c, i) => ({ ...c, surface: surfaces[i] })),
+    contours: review.contours.map((c, i) => ({
+      ...c,
+      name: names[i],
+      surface: surfaces[i],
+    })),
   };
   let scene: ReturnType<typeof dxfGeometry> | undefined;
   try {
@@ -97,6 +109,33 @@ export function DxfImport({
             </ul>
           </div>
         )}
+        <div className="selection-toolbar">
+          <button
+            disabled={selected.length === review.contours.length}
+            onClick={() => {
+              setSelected(review.contours.map((_, i) => i));
+              setConfirmed(false);
+            }}
+          >
+            Select all
+          </button>
+          <button
+            disabled={!selected.length}
+            onClick={() => {
+              setSelected([]);
+              setConfirmed(false);
+            }}
+          >
+            Clear selection
+          </button>
+          <span aria-live="polite">
+            {selected.length} / {review.contours.length} selected
+          </span>
+        </div>
+        <p className="help">
+          Double-click a piece name to rename it. Select all also includes small
+          flagged regions; deselect anything that is not material.
+        </p>
         <div className="dxf-contours">
           {review.contours.map((c, i) => (
             <div key={i} className="cad-contour-row">
@@ -107,7 +146,28 @@ export function DxfImport({
                   onChange={() => toggle(i)}
                 />
                 <span>
-                  {c.name} · {c.points.length} vertices
+                  <span
+                    title="Double-click to rename"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      rename(i);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        rename(i);
+                      }
+                    }}
+                  >
+                    {names[i]}
+                  </span>{" "}
+                  · {c.points.length} vertices
                   {unit
                     ? ` · ${sqft(new Decimal(c.area).times(dxfUnits[unit]).times(dxfUnits[unit]))} sq ft`
                     : ""}

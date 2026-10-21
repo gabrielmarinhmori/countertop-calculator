@@ -1,3 +1,4 @@
+import { linkedDrawingEdge } from "./annotations";
 import { boundaryPath } from "./cad-curves";
 import { jsPDF } from "jspdf";
 import {
@@ -15,7 +16,7 @@ import { loadImage } from "./files";
 export function dimensions(p: Piece): string {
   if (p.shape === "Polygon")
     return `${p.boundary ? `${p.boundary.length} CAD edges, ${p.boundary.filter((e) => e.center).length} circular arcs; analytical area` : `${p.points.length} vertices`}; ${p.scale} inches/pixel (confirmed)`;
-  return `${dimension(p.length)} x ${dimension(p.width)}${["L-shape", "U-shape"].includes(p.shape) ? `; left ${dimension(p.left)}, back ${dimension(p.back)}${p.shape === "U-shape" ? `, right ${dimension(p.right)}` : ""}` : ""}${p.quantity > 1 ? `; quantity ${p.quantity}` : ""}`;
+  return `${dimension(p.length)} x ${dimension(p.width)}${p.edgeSource ? `; linked countertop edge ${p.edgeSource.edgeIndex + 1}` : ""}${["L-shape", "U-shape"].includes(p.shape) ? `; left ${dimension(p.left)}, back ${dimension(p.back)}${p.shape === "U-shape" ? `, right ${dimension(p.right)}` : ""}` : ""}${p.quantity > 1 ? `; quantity ${p.quantity}` : ""}`;
 }
 export async function annotatedCanvas(project: Project, drawingId: string) {
   const drawing = project.drawings.find((d) => d.id === drawingId);
@@ -30,8 +31,10 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   ctx.font = `${size}px sans-serif`;
   for (const p of project.pieces.filter((p) => p.drawingId === drawingId)) {
     try {
-      const pts =
-        p.shape === "Polygon"
+      const attached = linkedDrawingEdge(project, p);
+      const pts = attached
+        ? [attached.start, attached.end]
+        : p.shape === "Polygon"
           ? p.points
           : geometry(p).map(([x, y]) => [
               x * 2 + p.annotation[0],
@@ -41,10 +44,14 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.closePath();
       ctx.fillStyle = "#2d947733";
-      if (p.boundary) ctx.fill(new Path2D(boundaryPath(p.boundary)));
-      else ctx.fill();
-      ctx.strokeStyle = "#176651";
-      if (p.boundary) ctx.stroke(new Path2D(boundaryPath(p.boundary)));
+      if (!attached) {
+        if (p.boundary) ctx.fill(new Path2D(boundaryPath(p.boundary)));
+        else ctx.fill();
+      }
+      ctx.strokeStyle = attached ? "#b75647" : "#176651";
+      if (attached)
+        ctx.stroke(new Path2D(boundaryPath([attached]).replace(/ Z$/, "")));
+      else if (p.boundary) ctx.stroke(new Path2D(boundaryPath(p.boundary)));
       else ctx.stroke();
       ctx.fillStyle = "#102e27";
       ctx.fillText(
