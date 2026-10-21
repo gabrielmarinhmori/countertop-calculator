@@ -46,6 +46,7 @@ import {
   geometry,
   sqft,
   totals,
+  linearCut,
   issues,
   fingerprint,
   isApproved,
@@ -56,7 +57,7 @@ import {
 } from "./engine";
 import { listProjects, saveProject, deleteProject } from "./storage";
 import { importDrawing } from "./files";
-import { download, exportReport, exportPNG, dimensions } from "./reports";
+import { download, exportReport, dimensions } from "./reports";
 import "./style.css";
 import { type DxfReview } from "./dxf";
 import { readDxf } from "./dxf-client";
@@ -392,26 +393,24 @@ export default function App() {
         {project && (
           <>
             <div className="rail-caption">CURRENT PROJECT</div>
-            {["Workspace", "Slab planning", "Review & approve", "Reports"].map(
-              (s, i) => (
-                <button
-                  key={s}
-                  className={`nav ${tab === s ? "active" : ""}`}
-                  onClick={() => setTab(s)}
-                >
-                  {s === "Workspace" ? (
-                    <Layers size={19} />
-                  ) : s === "Slab planning" ? (
-                    <PanelTop size={19} />
-                  ) : s === "Review & approve" ? (
-                    <CheckCircle2 size={19} />
-                  ) : (
-                    <FileDown size={19} />
-                  )}{" "}
-                  {s}
-                </button>
-              ),
-            )}
+            {["Workspace", "Slab planning", "Review & approve"].map((s, i) => (
+              <button
+                key={s}
+                className={`nav ${tab === s ? "active" : ""}`}
+                onClick={() => setTab(s)}
+              >
+                {s === "Workspace" ? (
+                  <Layers size={19} />
+                ) : s === "Slab planning" ? (
+                  <PanelTop size={19} />
+                ) : s === "Review & approve" ? (
+                  <CheckCircle2 size={19} />
+                ) : (
+                  <FileDown size={19} />
+                )}{" "}
+                {s}
+              </button>
+            ))}
           </>
         )}
         <div className="rail-bottom">
@@ -675,9 +674,14 @@ export default function App() {
                 </button>
                 <button
                   className="primary"
-                  onClick={() => setTab("Review & approve")}
+                  disabled={busy}
+                  onClick={() =>
+                    approved
+                      ? void task(() => exportReport(project))
+                      : setTab("Review & approve")
+                  }
                 >
-                  <CheckCircle2 size={16} /> Review project
+                  <FileDown size={16} /> Export PDF
                 </button>
               </div>
             </div>
@@ -1620,6 +1624,22 @@ export default function App() {
                       </strong>
                     </div>
                   ))}
+                  <div>
+                    <span>Linear cut (estimated)</span>
+                    <strong>
+                      {(() => {
+                        try {
+                          return `${linearCut(project).div(12).toFixed(2)} ft / ${linearCut(project).toFixed(2)} in`;
+                        } catch {
+                          return "—";
+                        }
+                      })()}
+                    </strong>
+                    <small>
+                      All piece perimeters × quantity. Shared edges count per
+                      piece; no overcut.
+                    </small>
+                  </div>
                 </div>
               </>
             ) : tab === "Slab planning" ? (
@@ -1725,87 +1745,8 @@ export default function App() {
                   <CheckCircle2 size={17} />
                   {approved ? "Project approved" : "Approve project snapshot"}
                 </button>
-                {approved && (
-                  <button onClick={() => setTab("Reports")}>
-                    Continue to reports <ArrowUpRight size={16} />
-                  </button>
-                )}
               </section>
-            ) : (
-              <section className="review-panel">
-                <div className="eyebrow">YOUR MEASUREMENTS, DOCUMENTED</div>
-                <h2>Project report</h2>
-                <p>
-                  {approved
-                    ? "Your approved snapshot is ready to download."
-                    : "This project is an unapproved draft. Complete the review before generating an official PDF."}
-                </p>
-                <div className="report-table">
-                  <div className="report-row table-head">
-                    <span>Piece / shape</span>
-                    <span>Surface</span>
-                    <span>Area</span>
-                  </div>
-                  {project.pieces.map((p) => (
-                    <div className="report-row" key={p.id}>
-                      <span>
-                        <strong>{p.name}</strong>
-                        <small>{p.shape}</small>
-                      </span>
-                      <span>{category(p)}</span>
-                      <strong>{safeArea(p)} sq ft</strong>
-                    </div>
-                  ))}
-                  {summary &&
-                    (
-                      [
-                        "horizontal",
-                        "backsplash",
-                        "waterfall",
-                        "combined",
-                      ] as const
-                    ).map((k) => (
-                      <div className="report-row" key={k}>
-                        <strong>
-                          {k === "combined" ? "Combined material" : k}
-                        </strong>
-                        <span>
-                          {project.placement === "shared" && k === "horizontal"
-                            ? "Union of surfaces"
-                            : ""}
-                        </span>
-                        <strong>{sqft(summary![k])} sq ft</strong>
-                      </div>
-                    ))}
-                </div>
-                <p className="help">
-                  Individual piece areas are gross surfaces. Shared-position
-                  totals count overlaps once. No pricing, waste, or miter
-                  allowances.
-                </p>
-                <div className="heading-actions">
-                  <button
-                    className="primary"
-                    disabled={!approved || busy}
-                    onClick={() => void task(() => exportReport(project))}
-                  >
-                    <FileDown size={17} /> Download approved PDF
-                  </button>
-                  <button
-                    disabled={!drawing || busy}
-                    onClick={() =>
-                      void task(() => exportPNG(project, drawingId))
-                    }
-                  >
-                    <Download size={17} /> Annotated PNG
-                  </button>
-                </div>
-                <p className="help">
-                  PNG uses the active drawing selected in Workspace. All PDF
-                  pages include their drawing annotations where available.
-                </p>
-              </section>
-            )}
+            ) : null}
           </div>
         )}
         <footer>

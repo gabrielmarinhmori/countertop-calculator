@@ -1,8 +1,7 @@
 import {
-  linkedDrawingEdge,
+  drawingEdges,
   linkedDrawingPanel,
   annotationFrame,
-  panelLabelPoint,
 } from "./annotations";
 import { boundaryPath } from "./cad-curves";
 import { jsPDF } from "jspdf";
@@ -16,6 +15,7 @@ import {
   totals,
   isApproved,
   dimension,
+  linearCut,
 } from "./engine";
 import { loadImage } from "./files";
 export function dimensions(p: Piece): string {
@@ -24,8 +24,14 @@ export function dimensions(p: Piece): string {
   return `${dimension(p.length)} x ${dimension(p.width)}${p.edgeSource ? `; linked countertop edge ${p.edgeSource.edgeIndex + 1}` : ""}${["L-shape", "U-shape"].includes(p.shape) ? `; left ${dimension(p.left)}, back ${dimension(p.back)}${p.shape === "U-shape" ? `, right ${dimension(p.right)}` : ""}` : ""}${p.quantity > 1 ? `; quantity ${p.quantity}` : ""}`;
 }
 export async function annotatedCanvas(project: Project, drawingId: string) {
-  const drawing = project.drawings.find((d) => d.id === drawingId);
-  if (!drawing) throw Error("Select an uploaded drawing first.");
+  const manualPoints = project.pieces
+    .filter((p) => p.drawingId === drawingId)
+    .flatMap((p) => drawingEdges(p).flatMap((e) => [e.start, e.end]));
+  const drawing = project.drawings.find((d) => d.id === drawingId) || {
+    width: Math.max(600, ...manualPoints.map((p) => p[0] + 50)),
+    height: Math.max(400, ...manualPoints.map((p) => p[1] + 50)),
+    data: "",
+  };
   const canvas = document.createElement("canvas");
   const frame = annotationFrame(
     project,
@@ -39,13 +45,10 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.translate(-frame.x, -frame.y);
-  ctx.drawImage(await loadImage(drawing.data), 0, 0);
-  const size = Math.max(14, drawing.width / 70);
+  if (drawing.data) ctx.drawImage(await loadImage(drawing.data), 0, 0);
   ctx.lineWidth = Math.max(2, drawing.width / 600);
-  ctx.font = `${size}px sans-serif`;
   for (const p of project.pieces.filter((p) => p.drawingId === drawingId)) {
     try {
-      const attached = linkedDrawingEdge(project, p);
       const panel = linkedDrawingPanel(project, p);
       const pts = panel
         ? panel.boundary.map((e) => e.start)
@@ -87,14 +90,6 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
         ctx.fill();
         ctx.stroke();
       }
-      ctx.fillStyle = "#102e27";
-      const labelPoint = panel ? panelLabelPoint(panel) : pts[0];
-      ctx.textAlign = panel ? "center" : "left";
-      ctx.fillText(
-        `${p.name} · ${dimensions(p)} · ${sqft(pieceArea(p))} sq ft`,
-        labelPoint[0],
-        panel ? labelPoint[1] : Math.max(size, labelPoint[1] - size / 2),
-      );
     } catch {
       /* Invalid draft pieces are not exported in approved reports. */
     }
@@ -108,12 +103,6 @@ export function download(blob: Blob, name: string) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-export async function exportPNG(p: Project, id: string) {
-  const canvas = await annotatedCanvas(p, id);
-  canvas.toBlob((b) => {
-    if (b) download(b, "annotated-drawing.png");
-  }, "image/png");
 }
 export async function exportReport(p: Project) {
   if (!isApproved(p))
@@ -131,52 +120,29 @@ export async function exportReport(p: Project) {
     pdf.text(lines, 20, y);
     y += height + 4;
   };
-  line("COUNTERTOP / APPROVED ESTIMATE", 11);
-  line(p.name, 24);
-  line(`Approved: ${new Date(p.approved!.at).toLocaleString()}`);
-  line(
-    "All dimensions in inches. Openings for sinks and cooktops are included.",
-  );
-  for (const piece of p.pieces) {
-    if (y > 215) {
-      pdf.addPage();
-      y = 22;
-    }
-    line(`${piece.name} | ${piece.shape} | ${category(piece)}`, 14);
-    line(dimensions(piece).replaceAll("″", " in"));
-    line(
-      `${sqft(pieceArea(piece))} sq ft${piece.defaultUsed ? " | Approved standard-depth assumption." : ""}`,
-    );
-    line(
-      `Drawing: ${p.drawings.find((d) => d.id === piece.drawingId)?.name || "Manual schematic"}`,
-    );
-  }
+  line(p.name, 22);
   const t = totals(p);
-  if (y > 210) {
-    pdf.addPage();
-    y = 22;
-  }
-  line("SURFACE AREA BREAKDOWN", 15);
-  line(`Horizontal countertops: ${sqft(t.horizontal)} sq ft`);
+  const cut = linearCut(p);
+  line(`Total surface area: ${sqft(t.combined)} sq ft`, 15);
+  line(`Countertops: ${sqft(t.horizontal)} sq ft`);
   line(`Backsplash: ${sqft(t.backsplash)} sq ft`);
-  line(`Waterfall: ${sqft(t.waterfall)} sq ft`);
-  line(`Combined material surfaces: ${sqft(t.combined)} sq ft`, 14);
+  if (!t.waterfall.isZero()) line(`Waterfall: ${sqft(t.waterfall)} sq ft`);
+  line(`Linear cut: ${cut.div(12).toFixed(2)} ft / ${cut.toFixed(2)} in`, 13);
   line(
-    `Placement approved as: ${p.placement === "shared" ? "verified shared coordinates; overlaps counted once" : "separate physical surfaces"}. Individual piece areas may exceed a union total.`,
+    "Linear cut estimates all piece perimeters, including quantities and arcs. Shared edges count per piece. No overcut or machine travel included.",
+    9,
   );
-  line(
-    "No waste, pricing, joint allowances, or minimum quantities added. Preliminary measurement and fabrication planning only; not CNC instructions.",
-  );
-  for (const drawing of p.drawings) {
-    pdf.addPage();
-    y = 22;
-    line(drawing.name, 14);
-    line(
-      "Overlay schematics are illustrative unless a physical scale has been verified.",
-      9,
-    );
-    const c = await annotatedCanvas(p, drawing.id);
-    const ratio = Math.min(170 / c.width, 215 / c.height);
+  line("Gross areas include openings. No waste added.", 9);
+  const ids = [...p.drawings.map((d) => d.id)];
+  if (p.pieces.some((piece) => !piece.drawingId)) ids.push("");
+  for (let i = 0; i < ids.length; i++) {
+    if (i > 0) {
+      pdf.addPage();
+      y = 20;
+    }
+    const c = await annotatedCanvas(p, ids[i]);
+    const availableHeight = 280 - y;
+    const ratio = Math.min(170 / c.width, availableHeight / c.height);
     pdf.addImage(
       c.toDataURL("image/png"),
       "PNG",
