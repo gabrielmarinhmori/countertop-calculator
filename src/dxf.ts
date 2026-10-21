@@ -1,4 +1,4 @@
-import { cadFaces, CAD_TOLERANCE } from "./cad-faces";
+import { cadFaces, CAD_TOLERANCE, markPolishedBoundary } from "./cad-faces";
 import {
   type CadEdge,
   sampleBoundary,
@@ -151,11 +151,13 @@ export function parseDxf(text: string, name: string): DxfReview {
         ? 1
         : resolvedRgb === 0xffff00
           ? 2
-          : resolvedRgb === 0xffffff
-            ? 7
-            : e.colorIndex && e.colorIndex !== 256
-              ? e.colorIndex
-              : layerColor?.colorIndex || 7;
+          : resolvedRgb === 0x00ff00
+            ? 3
+            : resolvedRgb === 0xffffff
+              ? 7
+              : e.colorIndex && e.colorIndex !== 256
+                ? e.colorIndex
+                : layerColor?.colorIndex || 7;
     if (e.type === "ARC") {
       const c = e.center;
       if (
@@ -325,6 +327,14 @@ export function parseDxf(text: string, name: string): DxfReview {
         `Numerical endpoint cleanup used tolerance ${CAD_TOLERANCE} DXF units; larger gaps remain open.`,
       );
   }
+  const green = review.context.filter(
+    (e) => e.color === 3 || e.color === 0x00ff00,
+  );
+  if (green.length)
+    for (const contour of review.contours) {
+      contour.boundary = markPolishedBoundary(contour.boundary!, green);
+      contour.points = sampleBoundary(contour.boundary);
+    }
   review.warnings.push(
     ...Object.entries(skipped).map(
       ([type, count]) => `${count} ${type} skipped.`,
@@ -430,7 +440,19 @@ export function importDxf(
     scale: data.scale,
     scaleConfirmed: true,
     surface: c.surface || "horizontal",
-    ...(c.boundary?.some((e) => e.center)
+    ...(c.boundary?.some(
+      (e) => e.polished || e.color === 3 || e.color === 0x00ff00,
+    )
+      ? {
+          polishedEdges: c.boundary.flatMap((e, index) =>
+            e.polished || e.color === 3 || e.color === 0x00ff00 ? [index] : [],
+          ),
+          polishedEdgeCount: c.boundary.length,
+        }
+      : {}),
+    ...(c.boundary?.some(
+      (e) => e.center || e.polished || e.color === 3 || e.color === 0x00ff00,
+    )
       ? {
           boundary: transformBoundary(
             c.boundary,

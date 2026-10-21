@@ -1,6 +1,6 @@
 import { type Project, type Piece, geometry, category, inches } from "./engine";
 import { type CadEdge, signedBoundaryArea, edgeAt } from "./cad-curves";
-/** Annotation coordinates only; never used as physical measurement data. */
+/** Drawing coordinates; cutting contact uses the confirmed source scale (manual schematics: 2 px/in). */
 export function drawingEdges(p: Piece): CadEdge[] {
   if (p.boundary) {
     geometry(p);

@@ -6,9 +6,7 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({ json: { version: 1, enabled: false } }),
   );
 });
-test("sample approval, PDF, backup, persistence, and invalidation", async ({
-  page,
-}) => {
+test("direct PDF, backup, persistence, and editing", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
@@ -16,17 +14,10 @@ test("sample approval, PDF, backup, persistence, and invalidation", async ({
   await expect(
     page.getByRole("button", { name: /Main kitchen run/ }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await expect(
-    page.getByText("Project approved", { exact: true }),
-  ).toBeVisible();
   const pdf = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PDF" }).click();
   const downloaded = await pdf;
-  expect(downloaded.suggestedFilename()).toBe("countertop-approved-report.pdf");
+  expect(downloaded.suggestedFilename()).toBe("countertop-report.pdf");
   const content = (await readFile((await downloaded.path())!)).toString(
     "latin1",
   );
@@ -42,9 +33,9 @@ test("sample approval, PDF, backup, persistence, and invalidation", async ({
     .getByRole("button", { name: /The Oakwood kitchen/ })
     .first()
     .click();
-  await expect(page.getByText("Approved snapshot")).toBeVisible();
+  await expect(page.getByText("Local project")).toBeVisible();
   await page.getByLabel("Length / overall X").fill("121");
-  await expect(page.getByText("Unapproved draft")).toBeVisible();
+  await expect(page.getByText("Local project")).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: "/tmp/countertop-workspace.png",
@@ -82,18 +73,9 @@ test("upload multi-page PDF, annotate, and export a simple PDF", async ({
   await expect(page.locator(".bottom-summary")).toContainText(
     "22.00 ft / 264.00 in",
   );
-  await page.getByRole("button", { name: "Export PDF" }).click();
-  await expect(
-    page.getByRole("heading", {
-      name: "A final check, for a precise estimate.",
-    }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
   const report = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PDF" }).click();
-  expect((await report).suggestedFilename()).toBe(
-    "countertop-approved-report.pdf",
-  );
+  expect((await report).suggestedFilename()).toBe("countertop-report.pdf");
 });
 test("mobile dashboard and invalid geometry", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -104,12 +86,8 @@ test("mobile dashboard and invalid geometry", async ({ page }) => {
   await page.getByRole("button", { name: "Island", exact: true }).click();
   await page.getByLabel("Length / overall X").fill("0");
   await page.getByLabel("Depth / width").fill("36");
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Approve project snapshot" }),
-  ).toBeDisabled();
+  await page.getByRole("button", { name: "Export PDF" }).click();
+  await expect(page.getByRole("alert")).toContainText("greater than zero");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -139,13 +117,6 @@ test("DXF imports measured geometry only after unit and boundary confirmation", 
   await expect(dialog).not.toBeVisible();
   await expect(page.locator(".piece-total")).toContainText("17.00");
   await expect(page.getByLabel(/I verified this scale/)).toBeChecked();
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await expect(
-    page.getByText("Project approved", { exact: true }),
-  ).toBeVisible();
 });
 
 test("curved CAD counter and shared red splash keep analytical areas and categories", async ({
@@ -175,16 +146,10 @@ test("curved CAD counter and shared red splash keep analytical areas and categor
       'svg[aria-label="Interactive drawing annotations"] path[d*="A"]',
     ),
   ).toHaveCount(1);
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
 
   const file = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PDF" }).click();
-  expect((await file).suggestedFilename()).toBe(
-    "countertop-approved-report.pdf",
-  );
+  expect((await file).suggestedFilename()).toBe("countertop-report.pdf");
   await page.reload();
   await page
     .getByRole("button", { name: /Untitled kitchen/ })
@@ -269,13 +234,6 @@ test("a clicked measured edge creates a separate backsplash that follows dimensi
   await expect(page.getByLabel("Length / overall X")).not.toBeEditable();
   await page.getByLabel("Height / face Y").fill("5 1/2");
   await expect(page.locator(".piece-total")).toContainText("4.58");
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await expect(
-    page.getByText("Project approved", { exact: true }),
-  ).toBeVisible();
 });
 test("curved CAD attachment uses arc length for the new backsplash", async ({
   page,
@@ -304,15 +262,9 @@ test("curved CAD attachment uses arc length for the new backsplash", async ({
     page.locator('.backsplash-panel[data-panel-kind="developed"]'),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "OK", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
   const pdf = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export PDF" }).click();
-  expect((await pdf).suggestedFilename()).toBe(
-    "countertop-approved-report.pdf",
-  );
+  expect((await pdf).suggestedFilename()).toBe("countertop-report.pdf");
 });
 
 test("global backsplash tool adds to different pieces until OK and draws filled panels", async ({
@@ -366,7 +318,7 @@ test("global backsplash tool adds to different pieces until OK and draws filled 
     fullPage: true,
   });
 });
-test("an imported piece can change category after approval without changing its geometry", async ({
+test("an imported piece can change category without changing its geometry", async ({
   page,
 }) => {
   await page.goto("/");
@@ -379,17 +331,11 @@ test("an imported piece can change category after approval without changing its 
   await dialog.getByRole("button", { name: "Select all", exact: true }).click();
   await dialog.getByLabel(/I verified the drawing units/).check();
   await dialog.getByRole("button", { name: "Import measured pieces" }).click();
-  await page
-    .getByRole("button", { name: "Review & approve", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Approve project snapshot" }).click();
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await page
     .getByLabel("Surface category", { exact: true })
     .selectOption("waterfall");
-  await expect(
-    page.getByText("Unapproved draft", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Local project", { exact: true })).toBeVisible();
   await expect(page.locator(".bottom-summary")).toContainText("16.65");
   await expect(
     page.locator(
@@ -397,9 +343,6 @@ test("an imported piece can change category after approval without changing its 
     ),
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Export PDF" }).click();
-  await expect(
-    page.getByRole("button", { name: "Approve project snapshot" }),
-  ).toBeEnabled();
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await page
     .getByLabel("Surface category", { exact: true })

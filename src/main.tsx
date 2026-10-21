@@ -1,3 +1,9 @@
+import {
+  linearCut,
+  polishedLength,
+  visibleEdges,
+  togglePolishedEdge,
+} from "./cutting";
 import SlabPlanner from "./SlabPlanner";
 import {
   drawingEdges,
@@ -24,10 +30,10 @@ import {
   RotateCcw,
   MousePointer2,
   PenTool,
+  Sparkles,
   Download,
   FolderOpen,
   Ruler,
-  CheckCircle2,
   AlertCircle,
   Move,
   ChevronRight,
@@ -46,10 +52,6 @@ import {
   geometry,
   sqft,
   totals,
-  linearCut,
-  issues,
-  fingerprint,
-  isApproved,
   category,
   createEdgeBacksplash,
   refreshEdgeBacksplashes,
@@ -82,6 +84,7 @@ const safeArea = (p: Piece) => {
 export default function App() {
   const [splashHeight, setSplashHeight] = useState("");
   const [choosingSplashEdge, setChoosingSplashEdge] = useState(false);
+  const [polishing, setPolishing] = useState(false);
   const [dxfReview, setDxfReview] = useState<DxfReview | null>(null);
   const [projects, setProjects] = useState<Project[]>([]),
     [project, setProject] = useState<Project | null>(null),
@@ -218,15 +221,21 @@ export default function App() {
   }
   const piece = project?.pieces.find((p) => p.id === selected);
   const drawing = project?.drawings.find((d) => d.id === drawingId);
-  useEffect(() => setChoosingSplashEdge(false), [project?.id, tab]);
   useEffect(() => {
-    if (!choosingSplashEdge) return;
+    setChoosingSplashEdge(false);
+    setPolishing(false);
+  }, [project?.id, tab]);
+  useEffect(() => {
+    if (!choosingSplashEdge && !polishing) return;
     const stop = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setChoosingSplashEdge(false);
+      if (e.key === "Escape") {
+        setChoosingSplashEdge(false);
+        setPolishing(false);
+      }
     };
     window.addEventListener("keydown", stop);
     return () => window.removeEventListener("keydown", stop);
-  }, [choosingSplashEdge]);
+  }, [choosingSplashEdge, polishing]);
   const splashEdges =
     choosingSplashEdge && project
       ? project.pieces
@@ -260,8 +269,6 @@ export default function App() {
     }
   }
 
-  const approved = project ? isApproved(project) : false;
-  const problems = project ? issues(project) : [];
   let summary: ReturnType<typeof totals> | null = null;
   try {
     if (project) summary = totals(project);
@@ -393,7 +400,7 @@ export default function App() {
         {project && (
           <>
             <div className="rail-caption">CURRENT PROJECT</div>
-            {["Workspace", "Slab planning", "Review & approve"].map((s, i) => (
+            {["Workspace", "Slab planning"].map((s, i) => (
               <button
                 key={s}
                 className={`nav ${tab === s ? "active" : ""}`}
@@ -401,12 +408,8 @@ export default function App() {
               >
                 {s === "Workspace" ? (
                   <Layers size={19} />
-                ) : s === "Slab planning" ? (
-                  <PanelTop size={19} />
-                ) : s === "Review & approve" ? (
-                  <CheckCircle2 size={19} />
                 ) : (
-                  <FileDown size={19} />
+                  <PanelTop size={19} />
                 )}{" "}
                 {s}
               </button>
@@ -475,7 +478,7 @@ export default function App() {
                 <p>
                   A clear workspace for your countertop measurements.
                   <br />
-                  Upload a plan, define your pieces, and approve your estimate.
+                  Upload a plan, define your pieces, and export your estimate.
                 </p>
                 <button onClick={demo}>
                   Explore a sample project <ArrowUpRight size={17} />
@@ -554,11 +557,7 @@ export default function App() {
                           stroke="#6a8d7a"
                         />
                       </svg>
-                      <span
-                        className={`status ${isApproved(p) ? "approved" : ""}`}
-                      >
-                        {isApproved(p) ? "Approved" : "Draft"}
-                      </span>
+                      <span className="status">Saved locally</span>
                     </div>
                     <div className="card-body">
                       <h3>{p.name}</h3>
@@ -653,9 +652,7 @@ export default function App() {
                   onChange={(e) => edit({ ...project, name: e.target.value })}
                 />
                 <div className="subtitle">
-                  <span className={`status ${approved ? "approved" : ""}`}>
-                    {approved ? "Approved snapshot" : "Unapproved draft"}
-                  </span>
+                  <span className="status">Local project</span>
                   <span>All measurements in inches</span>
                 </div>
               </div>
@@ -675,11 +672,7 @@ export default function App() {
                 <button
                   className="primary"
                   disabled={busy}
-                  onClick={() =>
-                    approved
-                      ? void task(() => exportReport(project))
-                      : setTab("Review & approve")
-                  }
+                  onClick={() => void task(() => exportReport(project))}
                 >
                   <FileDown size={16} /> Export PDF
                 </button>
@@ -720,6 +713,7 @@ export default function App() {
                           title="Select / move annotation"
                           className={tool === "select" ? "selected" : ""}
                           onClick={() => {
+                            setPolishing(false);
                             setChoosingSplashEdge(false);
                             setTool("select");
                           }}
@@ -730,6 +724,7 @@ export default function App() {
                           title="Pan"
                           className={tool === "pan" ? "selected" : ""}
                           onClick={() => {
+                            setPolishing(false);
                             setChoosingSplashEdge(false);
                             setTool("pan");
                           }}
@@ -740,6 +735,7 @@ export default function App() {
                           title="Add polygon vertices"
                           className={tool === "polygon" ? "selected" : ""}
                           onClick={() => {
+                            setPolishing(false);
                             setChoosingSplashEdge(false);
                             setTool("polygon");
                           }}
@@ -752,6 +748,7 @@ export default function App() {
                           className={choosingSplashEdge ? "selected" : ""}
                           onClick={() => {
                             setTool("select");
+                            setPolishing(false);
                             setChoosingSplashEdge(true);
                             setCalibration([]);
                             setError("");
@@ -760,9 +757,23 @@ export default function App() {
                           <PanelTop size={17} />
                         </button>
                         <button
+                          title="Polished edge tool"
+                          aria-pressed={polishing}
+                          className={polishing ? "selected" : ""}
+                          onClick={() => {
+                            setChoosingSplashEdge(false);
+                            setTool("select");
+                            setPolishing(true);
+                            setCalibration([]);
+                          }}
+                        >
+                          <Sparkles size={17} />
+                        </button>
+                        <button
                           title="Calibrate drawing scale"
                           className={tool === "calibrate" ? "selected" : ""}
                           onClick={() => {
+                            setPolishing(false);
                             setChoosingSplashEdge(false);
                             setTool("calibrate");
                             setCalibration([]);
@@ -772,6 +783,24 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    {polishing && (
+                      <div
+                        className="splash-toolbar"
+                        role="region"
+                        aria-label="Polished edge tool controls"
+                      >
+                        <p>
+                          Click edges on any piece to mark or remove polishing.
+                          Green edges are polished. Continue until OK or Escape.
+                        </p>
+                        <button
+                          className="primary"
+                          onClick={() => setPolishing(false)}
+                        >
+                          OK
+                        </button>
+                      </div>
+                    )}
                     {choosingSplashEdge && (
                       <div
                         className="splash-toolbar"
@@ -1035,6 +1064,75 @@ export default function App() {
                                 </g>
                               );
                             })}
+                          {project.pieces
+                            .filter((p) => p.drawingId === drawingId)
+                            .flatMap((p) => {
+                              try {
+                                return visibleEdges(project, p).flatMap(
+                                  (edge, index) => {
+                                    const marked =
+                                      p.polishedEdgeCount ===
+                                        visibleEdges(project, p).length &&
+                                      p.polishedEdges?.includes(index);
+                                    if (!polishing && !marked) return [];
+                                    const toggle = () => {
+                                      try {
+                                        edit(
+                                          togglePolishedEdge(
+                                            project,
+                                            p.id,
+                                            index,
+                                          ),
+                                        );
+                                        setError("");
+                                      } catch (e) {
+                                        setError((e as Error).message);
+                                      }
+                                    };
+                                    return [
+                                      <path
+                                        key={`polish-${p.id}-${index}`}
+                                        className="polished-edge"
+                                        d={boundaryPath([edge]).replace(
+                                          / Z$/,
+                                          "",
+                                        )}
+                                        fill="none"
+                                        stroke={marked ? "#159447" : "#d18435"}
+                                        strokeOpacity={marked ? 1 : 0.3}
+                                        strokeWidth={polishing ? 12 : 4}
+                                        vectorEffect="non-scaling-stroke"
+                                        pointerEvents={
+                                          polishing ? "stroke" : "none"
+                                        }
+                                        role={polishing ? "button" : undefined}
+                                        tabIndex={polishing ? 0 : undefined}
+                                        aria-pressed={!!marked}
+                                        aria-label={`Polish ${p.name}, edge ${index + 1}`}
+                                        onPointerDown={(e) =>
+                                          e.stopPropagation()
+                                        }
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (polishing) toggle();
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (
+                                            polishing &&
+                                            (e.key === "Enter" || e.key === " ")
+                                          ) {
+                                            e.preventDefault();
+                                            toggle();
+                                          }
+                                        }}
+                                      />,
+                                    ];
+                                  },
+                                );
+                              } catch {
+                                return [];
+                              }
+                            })}
                           {choosingSplashEdge &&
                             splashEdges.map(
                               ({ edge, index, pieceId, name }) => (
@@ -1295,9 +1393,9 @@ export default function App() {
                           </select>
                         </label>
                         <p className="help">
-                          Changing category updates the totals and requires a
-                          new review. Converting a linked vertical panel to
-                          countertop makes it independent.
+                          Changing category updates the totals immediately.
+                          Converting a linked vertical panel to countertop makes
+                          it independent.
                         </p>
                         <label>
                           Piece name
@@ -1341,6 +1439,7 @@ export default function App() {
                             <button
                               disabled={!!piece.boundary}
                               onClick={() => {
+                                setPolishing(false);
                                 setChoosingSplashEdge(false);
                                 setTool("polygon");
                               }}
@@ -1600,7 +1699,7 @@ export default function App() {
                 </div>
                 <div className="bottom-summary">
                   <div>
-                    <span className="eyebrow">DRAFT SURFACE AREA</span>
+                    <span className="eyebrow">SURFACE AREA</span>
                     <p>Openings are included. No waste added.</p>
                   </div>
                   {(
@@ -1629,16 +1728,30 @@ export default function App() {
                     <strong>
                       {(() => {
                         try {
-                          return `${linearCut(project).div(12).toFixed(2)} ft / ${linearCut(project).toFixed(2)} in`;
+                          const n = linearCut(project);
+                          return `${n.div(12).toFixed(2)} ft / ${n.toFixed(2)} in`;
                         } catch {
                           return "—";
                         }
                       })()}
                     </strong>
                     <small>
-                      All piece perimeters × quantity. Shared edges count per
-                      piece; no overcut.
+                      Coincident edges count once per drawing; no overcut.
                     </small>
+                  </div>
+                  <div>
+                    <span>Polished edges</span>
+                    <strong>
+                      {(() => {
+                        try {
+                          const n = polishedLength(project);
+                          return `${n.div(12).toFixed(2)} ft / ${n.toFixed(2)} in`;
+                        } catch {
+                          return "—";
+                        }
+                      })()}
+                    </strong>
+                    <small>Special edge finish length × quantity.</small>
                   </div>
                 </div>
               </>
@@ -1656,96 +1769,6 @@ export default function App() {
                   persist(p);
                 }}
               />
-            ) : tab === "Review & approve" ? (
-              <section className="review-panel">
-                <div className="eyebrow">MEASURE. VERIFY. APPROVE.</div>
-                <h2>A final check, for a precise estimate.</h2>
-                <p>
-                  Confirm the actual physical relationships between horizontal
-                  pieces. Drawing annotations are illustrative and do not
-                  establish physical placement.
-                </p>
-                <label>
-                  How do these surfaces relate?
-                  <select
-                    value={project.placement}
-                    onChange={(e) =>
-                      edit({
-                        ...project,
-                        placement: e.target.value as Project["placement"],
-                        placementConfirmed: false,
-                      })
-                    }
-                  >
-                    <option value="unresolved">Not verified yet</option>
-                    <option value="separate">
-                      Separate physical surfaces — no overlapping material
-                    </option>
-                    <option value="shared">
-                      Shared physical coordinates — calculate polygon union
-                    </option>
-                  </select>
-                </label>
-                {project.placement === "shared" && (
-                  <p className="notice">
-                    Set every horizontal piece’s X/Y origin in its dimension
-                    panel. Shapes use the orientation shown; rotated pieces must
-                    be modeled as verified scaled polygons. Shared coordinates
-                    apply across all drawings.
-                  </p>
-                )}
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    checked={project.placementConfirmed}
-                    onChange={(e) =>
-                      edit({ ...project, placementConfirmed: e.target.checked })
-                    }
-                  />{" "}
-                  I have verified the relative positions and all possible
-                  overlaps.
-                </label>
-                <h3>Measurement checklist</h3>
-                {problems.length ? (
-                  <ul className="issue-list">
-                    {problems.map((s, i) => (
-                      <li key={i}>
-                        <AlertCircle size={17} />
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="success">
-                    <CheckCircle2 size={20} /> Geometry and required
-                    confirmations are complete.
-                  </div>
-                )}
-                <p className="help">
-                  You are responsible for checking actual measurements and
-                  scale. Any project edits invalidate approval. Sink / cooktop
-                  openings are not deducted. Backsplash and waterfall remain
-                  separate.
-                </p>
-                <button
-                  className="primary"
-                  disabled={problems.length > 0 || approved}
-                  onClick={() => {
-                    const p = {
-                      ...project,
-                      approved: {
-                        at: new Date().toISOString(),
-                        fingerprint: fingerprint(project),
-                      },
-                    };
-                    setProject(p);
-                    persist(p);
-                  }}
-                >
-                  <CheckCircle2 size={17} />
-                  {approved ? "Project approved" : "Approve project snapshot"}
-                </button>
-              </section>
             ) : null}
           </div>
         )}

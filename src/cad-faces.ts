@@ -139,7 +139,7 @@ export function cadFaces(input: CadEdge[]): {
     buckets.set(k, [...(buckets.get(k) || []), id]);
     return id;
   }
-  const unique = new Set<string>();
+  const unique = new Map<string, number>();
   input.forEach((e, i) => {
     const ts = [
       ...new Set(splits[i].map((t) => Math.max(0, Math.min(1, t)))),
@@ -154,14 +154,20 @@ export function cadFaces(input: CadEdge[]): {
       const key = `${Math.min(a, b)}:${Math.max(a, b)}:${e.center ? `${e.center[0].toFixed(7)},${e.center[1].toFixed(7)},${edgeAt(e, (ts[j] + ts[j - 1]) / 2).map((n) => n.toFixed(7))}` : "line"}`;
       if (unique.has(key)) {
         duplicates++;
+        const previous = edges[unique.get(key)!].edge;
+        if (e.color === 3 || e.color === 0x00ff00 || e.polished)
+          previous.polished = true;
+        // Red still assigns the region category when a green finish line overlaps it.
+        if (e.color === 1 || e.color === 0xff0000) previous.color = e.color;
         continue;
       }
-      unique.add(key);
+      unique.set(key, edges.length);
       edges.push({
         a,
         b,
         edge: {
           ...e,
+          polished: e.polished || e.color === 3 || e.color === 0x00ff00,
           start: nodes[a],
           end: nodes[b],
           ...(e.center ? { sweep: e.sweep! * (ts[j] - ts[j - 1]) } : {}),
@@ -234,4 +240,57 @@ export function cadFaces(input: CadEdge[]): {
     cleaned,
     unresolved: edges.filter((e) => !e.used).map((e) => e.edge),
   };
+}
+
+/** Transfer green finish linework to coincident boundary fragments, across CAD layers. */
+export function markPolishedBoundary(
+  boundary: CadEdge[],
+  green: CadEdge[],
+): CadEdge[] {
+  return boundary.flatMap((edge) => {
+    const matches = green.filter((g) => {
+      if (!!edge.center !== !!g.center) return false;
+      if (edge.center)
+        return (
+          distance(edge.center, g.center!) <= CAD_TOLERANCE &&
+          Math.abs(edge.radius! - g.radius!) <= CAD_TOLERANCE
+        );
+      const a = minus(edge.end, edge.start),
+        b = minus(g.end, g.start);
+      return (
+        Math.abs(cross(a, b)) / (Math.hypot(...a) * Math.hypot(...b)) < 1e-10 &&
+        Math.abs(cross(a, minus(g.start, edge.start))) / Math.hypot(...a) <=
+          CAD_TOLERANCE
+      );
+    });
+    const ts = [
+      ...new Set([
+        0,
+        1,
+        ...matches.flatMap((g) =>
+          [parameter(edge, g.start), parameter(edge, g.end)].filter(
+            (t): t is number => t !== null,
+          ),
+        ),
+      ]),
+    ].sort((a, b) => a - b);
+    return ts.slice(1).flatMap((end, i) => {
+      const start = ts[i];
+      if (end - start < 1e-10) return [];
+      const mid = edgeAt(edge, (start + end) / 2);
+      return [
+        {
+          ...edge,
+          start: edgeAt(edge, start),
+          end: edgeAt(edge, end),
+          ...(edge.center ? { sweep: edge.sweep! * (end - start) } : {}),
+          polished:
+            !!edge.polished ||
+            edge.color === 3 ||
+            edge.color === 0x00ff00 ||
+            matches.some((g) => parameter(g, mid) !== null),
+        },
+      ];
+    });
+  });
 }

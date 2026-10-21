@@ -7,6 +7,7 @@ export interface CadEdge {
   radius?: number;
   sweep?: number;
   color?: number;
+  polished?: boolean;
 }
 const distance = (a: XY, b: XY) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 export function reverseEdge(e: CadEdge): CadEdge {
