@@ -1,3 +1,4 @@
+import type { SlabSettings } from "./slab-planner";
 import {
   type CadEdge,
   transformBoundary,
@@ -56,6 +57,7 @@ export interface Project {
   placement: "unresolved" | "separate" | "shared";
   placementConfirmed: boolean;
   approved?: { at: string; fingerprint: string };
+  slabSettings?: SlabSettings;
 }
 export function inches(raw: string): Decimal {
   const s = raw
