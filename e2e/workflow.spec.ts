@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 import { jsPDF } from "jspdf";
 test.beforeEach(async ({ page }) => {
@@ -22,12 +23,17 @@ test("sample approval, PDF, backup, persistence, and invalidation", async ({
   await expect(
     page.getByText("Project approved", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: /Continue to reports/ }).click();
   const pdf = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download approved PDF" }).click();
-  expect((await pdf).suggestedFilename()).toBe(
-    "countertop-approved-report.pdf",
+  await page.getByRole("button", { name: "Export PDF" }).click();
+  const downloaded = await pdf;
+  expect(downloaded.suggestedFilename()).toBe("countertop-approved-report.pdf");
+  const content = (await readFile((await downloaded.path())!)).toString(
+    "latin1",
   );
+  expect(content).toContain("Total surface area:");
+  expect(content).toContain("Linear cut:");
+  expect(content).toContain("/Subtype /Image");
+  expect(content).not.toContain("Main kitchen run");
   const backup = page.waitForEvent("download");
   await page.getByRole("button", { name: "Backup", exact: true }).click();
   expect((await backup).suggestedFilename()).toBe("countertop-project.json");
@@ -46,7 +52,9 @@ test("sample approval, PDF, backup, persistence, and invalidation", async ({
   });
   expect(errors).toEqual([]);
 });
-test("upload multi-page PDF, annotate, and export PNG", async ({ page }) => {
+test("upload multi-page PDF, annotate, and export a simple PDF", async ({
+  page,
+}) => {
   const pdf = new jsPDF();
   pdf.text("Kitchen drawing page one", 20, 20);
   pdf.addPage();
@@ -71,13 +79,21 @@ test("upload multi-page PDF, annotate, and export PNG", async ({ page }) => {
   await page.getByLabel("Length / overall X").fill("96");
   await page.getByLabel("Depth / width").fill("36");
   await expect(page.locator(".piece-total")).toContainText("24.00");
-  await page.getByRole("button", { name: "Reports", exact: true }).click();
-  const png = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Annotated PNG" }).click();
-  expect((await png).suggestedFilename()).toBe("annotated-drawing.png");
+  await expect(page.locator(".bottom-summary")).toContainText(
+    "22.00 ft / 264.00 in",
+  );
+  await page.getByRole("button", { name: "Export PDF" }).click();
   await expect(
-    page.getByRole("button", { name: "Download approved PDF" }),
-  ).toBeDisabled();
+    page.getByRole("heading", {
+      name: "A final check, for a precise estimate.",
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Approve project snapshot" }).click();
+  const report = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export PDF" }).click();
+  expect((await report).suggestedFilename()).toBe(
+    "countertop-approved-report.pdf",
+  );
 });
 test("mobile dashboard and invalid geometry", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -163,11 +179,9 @@ test("curved CAD counter and shared red splash keep analytical areas and categor
     .getByRole("button", { name: "Review & approve", exact: true })
     .click();
   await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await page.getByRole("button", { name: /Continue to reports/ }).click();
-  await expect(page.locator(".report-table")).toContainText("16.65");
-  await expect(page.locator(".report-table")).toContainText("2.58");
+
   const file = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download approved PDF" }).click();
+  await page.getByRole("button", { name: "Export PDF" }).click();
   expect((await file).suggestedFilename()).toBe(
     "countertop-approved-report.pdf",
   );
@@ -294,12 +308,8 @@ test("curved CAD attachment uses arc length for the new backsplash", async ({
     .getByRole("button", { name: "Review & approve", exact: true })
     .click();
   await page.getByRole("button", { name: "Approve project snapshot" }).click();
-  await page.getByRole("button", { name: /Continue to reports/ }).click();
-  const png = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Annotated PNG" }).click();
-  expect((await png).suggestedFilename()).toBe("annotated-drawing.png");
   const pdf = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download approved PDF" }).click();
+  await page.getByRole("button", { name: "Export PDF" }).click();
   expect((await pdf).suggestedFilename()).toBe(
     "countertop-approved-report.pdf",
   );
@@ -386,13 +396,10 @@ test("an imported piece can change category after approval without changing its 
       'svg[aria-label="Interactive drawing annotations"] path[d*="A"]',
     ),
   ).toHaveCount(1);
-  await page.getByRole("button", { name: "Reports", exact: true }).click();
+  await page.getByRole("button", { name: "Export PDF" }).click();
   await expect(
-    page.locator(".report-row").filter({ hasText: "waterfall" }).last(),
-  ).toContainText("16.65");
-  await expect(
-    page.getByRole("button", { name: "Download approved PDF" }),
-  ).toBeDisabled();
+    page.getByRole("button", { name: "Approve project snapshot" }),
+  ).toBeEnabled();
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
   await page
     .getByLabel("Surface category", { exact: true })

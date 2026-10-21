@@ -1510,3 +1510,13 @@ input[readonly] {
     padding: 14px;
   }
 }
+
+.bottom-summary {
+  flex-wrap: wrap;
+}
+.bottom-summary > div:last-child {
+  max-width: 260px;
+}
+.bottom-summary > div:last-child strong {
+  font-size: 18px;
+}

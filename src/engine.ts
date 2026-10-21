@@ -399,6 +399,27 @@ export function measuredEdgeLength(p: Piece, index: number): Decimal {
         .plus(new Decimal(e.end[1]).minus(e.start[1]).pow(2))
         .sqrt();
 }
+/** Sum gross piece perimeters, not a machine toolpath. Shared edges repeat per piece. */
+export function linearCut(project: Project): Decimal {
+  validateEdgeBacksplashes(project);
+  return project.pieces.reduce((total, piece) => {
+    pieceArea(piece); // Validate quantities and physical dimensions consistently with area totals.
+    const perimeter = physicalEdges(piece).reduce(
+      (sum, edge) =>
+        sum.plus(
+          edge.center
+            ? new Decimal(edge.radius!).times(Math.abs(edge.sweep!))
+            : new Decimal(edge.end[0])
+                .minus(edge.start[0])
+                .pow(2)
+                .plus(new Decimal(edge.end[1]).minus(edge.start[1]).pow(2))
+                .sqrt(),
+        ),
+      new Decimal(0),
+    );
+    return total.plus(perimeter.times(piece.quantity));
+  }, new Decimal(0));
+}
 function sourceForPanel(project: Project, p: Piece): Piece {
   const link = p.edgeSource!;
   const source = project.pieces.find((s) => s.id === link.pieceId);
