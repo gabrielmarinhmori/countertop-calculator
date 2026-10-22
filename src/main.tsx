@@ -1,3 +1,4 @@
+import { slabUsage } from "./slab-usage";
 import DrawingSlabs from "./DrawingSlabs";
 import { slabBounds, moveDrawingSlab } from "./drawing-slabs";
 import { transformPieces, nudgePieces, snappedDelta } from "./transforms";
@@ -251,6 +252,27 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y") {
         e.preventDefault();
         undo(true);
+        return;
+      }
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        selectedIds.length &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        const ids = new Set(selectedIds);
+        // Generated panels belong to their source and are removed with it.
+        edit({
+          ...project,
+          pieces: project.pieces.filter(
+            (p) => !ids.has(p.id) && !ids.has(p.edgeSource?.pieceId || ""),
+          ),
+        });
+        setSelected("");
+        setMulti([]);
+        setError("");
         return;
       }
       const delta: Record<string, Point> = {
@@ -1357,6 +1379,7 @@ export default function App() {
                                   className="drawing-slab"
                                   data-slab-id={s.id}
                                   data-selected={selectedSlab === s.id}
+                                  data-locked={!!s.locked}
                                   x={b.x}
                                   y={b.y}
                                   width={b.width}
@@ -1383,6 +1406,7 @@ export default function App() {
                                     setSelected("");
                                     setMulti([]);
                                     setSelectedSlab(s.id);
+                                    if (s.locked) return;
                                     slabDrag.current = {
                                       project,
                                       id: s.id,
@@ -2193,38 +2217,6 @@ export default function App() {
                             />
                           </label>
                         )}
-                        {project.placement === "shared" &&
-                          category(piece) === "horizontal" && (
-                            <>
-                              <p className="help">
-                                Physical origin in a common coordinate system
-                                (inches). Axes follow the schematic; polygons
-                                already include scaled drawing coordinates.
-                                Annotation position does not set physical
-                                position.
-                              </p>
-                              <div className="field-grid">
-                                <label>
-                                  X origin
-                                  <input
-                                    value={piece.x}
-                                    onChange={(e) =>
-                                      patchPiece({ x: e.target.value })
-                                    }
-                                  />
-                                </label>
-                                <label>
-                                  Y origin
-                                  <input
-                                    value={piece.y}
-                                    onChange={(e) =>
-                                      patchPiece({ y: e.target.value })
-                                    }
-                                  />
-                                </label>
-                              </div>
-                            </>
-                          )}
                         {piece.edgeSource && (
                           <p className="help">
                             Length follows edge {piece.edgeSource.edgeIndex + 1}{" "}
@@ -2260,7 +2252,10 @@ export default function App() {
                 <div className="bottom-summary">
                   <div>
                     <span className="eyebrow">SURFACE AREA</span>
-                    <p>Openings are included. No waste added.</p>
+                    <p>
+                      Overlaps count once per category and drawing. Openings
+                      included; no waste added.
+                    </p>
                   </div>
                   {(
                     [
@@ -2314,6 +2309,68 @@ export default function App() {
                     <small>Special edge finish length × quantity.</small>
                   </div>
                 </div>
+                {summary &&
+                  (summary.overlap.gt(0.0001) || summary.approximate) && (
+                    <p className="help">
+                      {summary.overlap.gt(0.0001)
+                        ? `Same-category overlap deducted from total: ${sqft(summary.overlap)} sq ft. Countertops and vertical surfaces stay separate. `
+                        : ""}
+                      {summary.approximate
+                        ? "Overlapping curved outlines use a geometric estimate."
+                        : ""}
+                    </p>
+                  )}
+                {!!project.drawingSlabs?.length && (
+                  <section className="slab-usage" aria-label="Slab usage">
+                    <h3>Slab usage</h3>
+                    <p className="help">
+                      Visible footprints inside each slab; overlapping piece
+                      areas count once. Portions outside are excluded. Separate
+                      overlapping slabs to avoid counting the same footprint on
+                      more than one slab.
+                    </p>
+                    {project.drawingSlabs.map((s, i) => {
+                      try {
+                        const u = slabUsage(project, s);
+                        return (
+                          <div className="slab-usage-row" key={s.id}>
+                            <strong>
+                              {s.name || `Slab ${i + 1}`}
+                              {s.locked ? " · Locked" : ""}
+                            </strong>
+                            <span>Total: {sqft(u.total)} sq ft</span>
+                            <span>
+                              Used: {sqft(u.used)} sq ft (
+                              {u.usedPercent.toFixed(1)}%)
+                            </span>
+                            <span>
+                              Remaining: {sqft(u.remaining)} sq ft (
+                              {u.remainingPercent.toFixed(1)}%)
+                            </span>
+                            {u.approximate && (
+                              <small>Curved footprint estimate.</small>
+                            )}
+                            {u.repeated && (
+                              <small>
+                                Quantities above one need separate placed
+                                copies; only the visible footprint is counted.
+                              </small>
+                            )}
+                          </div>
+                        );
+                      } catch (e) {
+                        return (
+                          <div className="slab-usage-row" key={s.id}>
+                            <strong>{s.name || `Slab ${i + 1}`}</strong>
+                            <span>
+                              Usage unavailable: {(e as Error).message}
+                            </span>
+                          </div>
+                        );
+                      }
+                    })}
+                  </section>
+                )}
               </>
             ) : tab === "Slab planning" ? (
               <SlabPlanner
@@ -2353,10 +2410,13 @@ export default function App() {
         <DxfImport
           review={dxfReview}
           onCancel={() => setDxfReview(null)}
-          onImport={({ drawing, pieces }) => {
+          onImport={({ drawing, pieces, slabs }) => {
+            if ((project.drawingSlabs?.length || 0) + slabs.length > 100)
+              throw Error("Import up to 100 drawing slabs per project.");
             edit({
               ...project,
               drawings: [...project.drawings, drawing],
+              drawingSlabs: [...(project.drawingSlabs || []), ...slabs],
               pieces: [...project.pieces, ...pieces],
               placement: "unresolved",
               placementConfirmed: false,

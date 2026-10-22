@@ -1,3 +1,4 @@
+import { automaticTotals } from "./layout-area";
 import type { DrawingSlab } from "./drawing-slabs";
 import type { SlabSettings } from "./slab-planner";
 import {
@@ -8,7 +9,6 @@ import {
   signedBoundaryArea,
 } from "./cad-curves";
 import Decimal from "decimal.js";
-import polygonClipping from "polygon-clipping";
 export type Point = [number, number];
 export type Shape =
   | "Straight"
@@ -255,51 +255,9 @@ export function pieceArea(p: Piece) {
 }
 export function totals(project: Project) {
   validateEdgeBacksplashes(project);
-  let horizontal = new Decimal(0),
-    backsplash = new Decimal(0),
-    waterfall = new Decimal(0);
-  const horizontalPieces = project.pieces.filter(
-    (p) => category(p) === "horizontal",
-  );
-  for (const p of project.pieces) {
-    const a = pieceArea(p);
-    if (category(p) === "backsplash") backsplash = backsplash.plus(a);
-    else if (category(p) === "waterfall") waterfall = waterfall.plus(a);
-    else horizontal = horizontal.plus(a);
-  }
-  const curved = horizontalPieces.some((p) =>
-    p.boundary?.some((e) => e.center),
-  );
-  if (project.placement === "shared" && curved && horizontalPieces.length > 1)
-    throw Error(
-      "Shared overlap union with curved countertops is not supported. Verify that surfaces do not overlap and select separate surfaces, or revise the CAD layout.",
-    );
-  if (project.placement === "shared" && horizontalPieces.length && !curved) {
-    const polygons = horizontalPieces.map((p) => {
-      if (!/^-?\d+(?:\.\d+)?$/.test(p.x) || !/^-?\d+(?:\.\d+)?$/.test(p.y))
-        throw Error("Shared positions require signed decimal inches.");
-      if (!Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.y)))
-        throw Error("Physical origins must be finite.");
-      const pts = orientedGeometry(p).map(
-        ([x, y]) => [x + Number(p.x), y + Number(p.y)] as Point,
-      );
-      return [[...pts, pts[0]]];
-    });
-    const union = polygonClipping.union(polygons[0], ...polygons.slice(1));
-    horizontal = new Decimal(0);
-    for (const poly of union)
-      poly.forEach((ring, i) => {
-        const a = polygonArea(ring.slice(0, -1) as Point[]);
-        horizontal = i === 0 ? horizontal.plus(a) : horizontal.minus(a);
-      });
-  }
-  return {
-    horizontal,
-    backsplash,
-    waterfall,
-    combined: horizontal.plus(backsplash).plus(waterfall),
-  };
+  return automaticTotals(project);
 }
+
 export function fingerprint(p: Project) {
   return JSON.stringify({
     name: p.name,

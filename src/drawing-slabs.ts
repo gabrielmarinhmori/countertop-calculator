@@ -1,6 +1,8 @@
 import { type Project, type Point, inches } from "./engine";
 export interface DrawingSlab {
   id: string;
+  name?: string;
+  locked?: boolean;
   drawingId: string;
   length: string;
   width: string;
@@ -55,6 +57,8 @@ export function addDrawingSlab(
   const slab: DrawingSlab = {
     id: crypto.randomUUID(),
     drawingId,
+    name: `Slab ${existing.length + 1}`,
+    locked: false,
     length,
     width,
     scale,
@@ -68,7 +72,9 @@ export function moveDrawingSlab(p: Project, id: string, delta: Point): Project {
   return {
     ...p,
     drawingSlabs: (p.drawingSlabs || []).map((s) =>
-      s.id === id ? { ...s, x: s.x + delta[0], y: s.y + delta[1] } : s,
+      s.id === id && !s.locked
+        ? { ...s, x: s.x + delta[0], y: s.y + delta[1] }
+        : s,
     ),
   };
 }

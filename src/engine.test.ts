@@ -105,9 +105,15 @@ describe("surface calculations", () => {
       }),
     ).toThrow());
   it("backsplash and quantity", () => {
-    expect(sqft(pieceArea({ ...rect("96", "4"), shape: "Backsplash" }))).toBe(
-      "2.67",
-    );
+    expect(
+      sqft(
+        pieceArea({
+          ...rect("96", "4"),
+          shape: "Backsplash",
+          annotation: [400, 80],
+        }),
+      ),
+    ).toBe("2.67");
     expect(
       pieceArea({
         ...rect("96", "4"),
@@ -117,9 +123,15 @@ describe("surface calculations", () => {
     ).toBe(768);
   });
   it("waterfall", () =>
-    expect(sqft(pieceArea({ ...rect("36", "34"), shape: "Waterfall" }))).toBe(
-      "8.50",
-    ));
+    expect(
+      sqft(
+        pieceArea({
+          ...rect("36", "34"),
+          shape: "Waterfall",
+          annotation: [700, 80],
+        }),
+      ),
+    ).toBe("8.50"));
   it("missing dimensions", () =>
     expect(() => pieceArea(makePiece("Island"))).toThrow());
   it("rounds only at presentation", () => {
@@ -186,7 +198,10 @@ describe("union and approval", () => {
   it("subtracts overlapping countertops", () => {
     const p = makeProject();
     p.placement = "shared";
-    p.pieces = [rect("100", "25"), { ...rect("100", "25"), x: "50" }];
+    p.pieces = [
+      rect("100", "25"),
+      { ...rect("100", "25"), annotation: [180, 80] },
+    ];
     expect(totals(p).horizontal.toNumber()).toBe(3750);
   });
   it("handles containment and touching edges", () => {
@@ -194,15 +209,18 @@ describe("union and approval", () => {
     p.placement = "shared";
     p.pieces = [rect("100", "100"), { ...rect("10", "10"), x: "20", y: "20" }];
     expect(totals(p).horizontal.toNumber()).toBe(10000);
-    p.pieces = [rect("100", "25"), { ...rect("100", "25"), x: "100" }];
+    p.pieces = [
+      rect("100", "25"),
+      { ...rect("100", "25"), annotation: [280, 80] },
+    ];
     expect(totals(p).horizontal.toNumber()).toBe(5000);
   });
   it("separates report categories across multiple pieces", () => {
     const p = makeProject();
     p.pieces = [
       rect("96", "25 1/2"),
-      { ...rect("96", "4"), shape: "Backsplash" },
-      { ...rect("36", "34"), shape: "Waterfall" },
+      { ...rect("96", "4"), shape: "Backsplash", annotation: [400, 80] },
+      { ...rect("36", "34"), shape: "Waterfall", annotation: [700, 80] },
     ];
     p.placement = "separate";
     p.placementConfirmed = true;
@@ -256,9 +274,9 @@ it("preserves an interior gap when unioning surrounding surfaces", () => {
   p.placement = "shared";
   p.pieces = [
     rect("10", "2"),
-    { ...rect("10", "2"), y: "8" },
-    { ...rect("2", "6"), y: "2" },
-    { ...rect("2", "6"), x: "8", y: "2", shape: "Peninsula" },
+    { ...rect("10", "2"), annotation: [80, 96] },
+    { ...rect("2", "6"), annotation: [80, 84] },
+    { ...rect("2", "6"), annotation: [96, 84], shape: "Peninsula" },
   ];
   expect(totals(p).horizontal.toNumber()).toBe(64);
 });

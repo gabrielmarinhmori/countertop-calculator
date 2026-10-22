@@ -67,10 +67,11 @@ export function DxfImport({
         <h2 id="dxf-title">Review DXF boundaries</h2>
         <p>
           {review.name}. Shared borders and circular arcs are reconstructed into
-          enclosed regions. Green edges are imported as polished edges.
-          White/yellow suggest countertops; red suggests back/side splash. Check
-          each category and select only physical surfaces. Do not select
-          sink/cooktop openings or small accidental regions.
+          enclosed regions. Green edges are imported as polished edges. Closed
+          gray rectangles are slabs, not countertop pieces. White/yellow suggest
+          countertops; red suggests back/side splash. Check each category and
+          select only physical surfaces. Do not select sink/cooktop openings or
+          small accidental regions.
         </p>
         <p className="help">
           Arcs use analytical circular-segment areas. Display samples do not
@@ -188,6 +189,7 @@ export function DxfImport({
                 <option value="horizontal">Countertop</option>
                 <option value="backsplash">Back / side splash</option>
                 <option value="waterfall">Waterfall</option>
+                <option value="slab">Slab</option>
               </select>
               {Number(c.area) < 4 && (
                 <small className="validation">
@@ -246,11 +248,13 @@ export function DxfImport({
               const cx = points.reduce((s, p) => s + p[0], 0) / points.length,
                 cy = points.reduce((s, p) => s + p[1], 0) / points.length;
               const color =
-                surfaces[i] === "backsplash"
-                  ? "#ff7979"
-                  : surfaces[i] === "waterfall"
-                    ? "#93a8ff"
-                    : "#e6efe9";
+                surfaces[i] === "slab"
+                  ? "#aeb4bb"
+                  : surfaces[i] === "backsplash"
+                    ? "#ff7979"
+                    : surfaces[i] === "waterfall"
+                      ? "#93a8ff"
+                      : "#e6efe9";
               return (
                 <g
                   key={i}

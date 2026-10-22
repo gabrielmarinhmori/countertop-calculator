@@ -141,6 +141,13 @@ export async function exportReport(p: Project) {
   line(`Countertops: ${sqft(t.horizontal)} sq ft`);
   line(`Backsplash: ${sqft(t.backsplash)} sq ft`);
   if (!t.waterfall.isZero()) line(`Waterfall: ${sqft(t.waterfall)} sq ft`);
+  if (t.overlap.gt(0.0001))
+    line(
+      `Same-category overlap deducted from total: ${sqft(t.overlap)} sq ft`,
+      9,
+    );
+  if (t.approximate)
+    line("Overlapping curved areas use an estimated outline union.", 9);
   line(`Linear cut: ${cut.div(12).toFixed(2)} ft / ${cut.toFixed(2)} in`, 13);
   const polished = polishedLength(p);
   line(
@@ -151,7 +158,10 @@ export async function exportReport(p: Project) {
     "Coincident cutting edges in each drawing count once. No overcut or machine travel included.",
     9,
   );
-  line("Gross areas include openings. No waste added.", 9);
+  line(
+    "Overlaps count once per category and drawing. Countertops and vertical surfaces stay separate. Openings included. No waste added.",
+    9,
+  );
   const ids = [...p.drawings.map((d) => d.id)];
   if (
     p.pieces.some((piece) => !piece.drawingId) ||

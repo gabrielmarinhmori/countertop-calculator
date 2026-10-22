@@ -1,3 +1,4 @@
+import type { DrawingSlab } from "./drawing-slabs";
 import { cadFaces, CAD_TOLERANCE, markPolishedBoundary } from "./cad-faces";
 import {
   type CadEdge,
@@ -29,7 +30,7 @@ export interface DxfContour {
   points: Point[];
   area: string;
   boundary?: CadEdge[];
-  surface?: "horizontal" | "backsplash" | "waterfall";
+  surface?: "horizontal" | "backsplash" | "waterfall" | "slab";
 }
 export interface DxfReview {
   name: string;
@@ -146,8 +147,16 @@ export function parseDxf(text: string, name: string): DxfReview {
     };
     const layerColor = doc.tables?.layer?.layers[e.layer || "0"];
     const resolvedRgb = e.color ?? layerColor?.color;
-    const color =
-      resolvedRgb === 0xff0000
+    const rgb = resolvedRgb;
+    const gray =
+      typeof rgb === "number" &&
+      ((rgb >> 16) & 255) === ((rgb >> 8) & 255) &&
+      ((rgb >> 8) & 255) === (rgb & 255) &&
+      (rgb & 255) > 0 &&
+      (rgb & 255) < 255;
+    const color = gray
+      ? 8
+      : resolvedRgb === 0xff0000
         ? 1
         : resolvedRgb === 0xffff00
           ? 2
@@ -302,31 +311,45 @@ export function parseDxf(text: string, name: string): DxfReview {
   }
   review.context = [...layerEdges.values()].flat();
   review.unresolved = [];
-  for (const [layer, edges] of layerEdges) {
-    const result = cadFaces(edges);
-    review.unresolved.push(...result.unresolved);
-    for (const face of result.faces)
-      review.contours.push({
-        name: `${layer} · ${face.surface === "backsplash" ? "Splash" : "Counter"} ${review.contours.length + 1}`,
-        layer,
-        points: face.points,
-        area: face.area,
-        boundary: face.boundary,
-        surface: face.surface,
-      });
-    if (result.open)
-      skipped["LINE/ARC edges not bounding a valid closed face"] =
-        (skipped["LINE/ARC edges not bounding a valid closed face"] || 0) +
-        result.open;
-    if (result.duplicates)
-      review.warnings.push(
-        `${result.duplicates} duplicate/overlapping edge fragments merged.`,
-      );
-    if (result.cleaned)
-      review.warnings.push(
-        `Numerical endpoint cleanup used tolerance ${CAD_TOLERANCE} DXF units; larger gaps remain open.`,
-      );
-  }
+  const isGray = (e: CadEdge) =>
+    e.color === 8 ||
+    e.color === 9 ||
+    (e.color !== undefined && e.color >= 250 && e.color <= 254);
+  for (const [layer, allEdges] of layerEdges)
+    for (const slab of [false, true]) {
+      const edges = allEdges.filter((e) => isGray(e) === slab);
+      if (!edges.length) continue;
+      const result = cadFaces(edges);
+      review.unresolved.push(...result.unresolved);
+      for (const face of result.faces) {
+        if (slab && !slabRectangle(face.points, face.boundary)) {
+          review.warnings.push(
+            "Gray slab outlines must be closed axis-aligned rectangles; a non-rectangular gray region was skipped.",
+          );
+          continue;
+        }
+        review.contours.push({
+          name: `${layer} · ${slab ? "Slab" : face.surface === "backsplash" ? "Splash" : "Counter"} ${review.contours.length + 1}`,
+          layer,
+          points: face.points,
+          area: face.area,
+          boundary: face.boundary,
+          surface: slab ? "slab" : face.surface,
+        });
+      }
+      if (result.open)
+        skipped["LINE/ARC edges not bounding a valid closed face"] =
+          (skipped["LINE/ARC edges not bounding a valid closed face"] || 0) +
+          result.open;
+      if (result.duplicates)
+        review.warnings.push(
+          `${result.duplicates} duplicate/overlapping edge fragments merged.`,
+        );
+      if (result.cleaned)
+        review.warnings.push(
+          `Numerical endpoint cleanup used tolerance ${CAD_TOLERANCE} DXF units; larger gaps remain open.`,
+        );
+    }
   const green = review.context.filter(
     (e) => e.color === 3 || e.color === 0x00ff00,
   );
@@ -395,7 +418,7 @@ export function importDxf(
   review: DxfReview,
   unit: DxfUnit,
   indices: number[],
-): { drawing: Drawing; pieces: Piece[] } {
+): { drawing: Drawing; pieces: Piece[]; slabs: DrawingSlab[] } {
   const data = dxfGeometry(review, unit, indices);
   const canvas = document.createElement("canvas");
   canvas.width = data.width;
@@ -434,38 +457,93 @@ export function importDxf(
     width: data.width,
     height: data.height,
   };
-  const pieces = data.contours.map((c, i) => ({
-    ...makePiece("Polygon", drawing.id),
-    name: c.name,
-    points: data.points[i],
-    scale: data.scale,
-    scaleConfirmed: true,
-    surface: c.surface || "horizontal",
-    ...(c.boundary?.some(
-      (e) => e.polished || e.color === 3 || e.color === 0x00ff00,
+  const pieces: Piece[] = data.contours.flatMap((c, i) =>
+    c.surface === "slab"
+      ? []
+      : [
+          {
+            ...makePiece("Polygon", drawing.id),
+            name: c.name,
+            points: data.points[i],
+            scale: data.scale,
+            scaleConfirmed: true,
+            surface: c.surface || "horizontal",
+            ...(c.boundary?.some(
+              (e) => e.polished || e.color === 3 || e.color === 0x00ff00,
+            )
+              ? {
+                  polishedEdges: c.boundary.flatMap((e, index) =>
+                    e.polished || e.color === 3 || e.color === 0x00ff00
+                      ? [index]
+                      : [],
+                  ),
+                  polishedEdgeCount: c.boundary.length,
+                }
+              : {}),
+            ...(c.boundary?.some(
+              (e) =>
+                e.center || e.polished || e.color === 3 || e.color === 0x00ff00,
+            )
+              ? {
+                  boundary: transformBoundary(
+                    c.boundary,
+                    (p) => [
+                      (p[0] - data.minX) * data.factor + 50,
+                      (data.maxY - p[1]) * data.factor + 50,
+                    ],
+                    data.factor,
+                    true,
+                  ),
+                }
+              : {}),
+          },
+        ],
+  );
+  const slabs: DrawingSlab[] = data.contours.flatMap((c, i) => {
+    if (c.surface !== "slab") return [];
+    if (!slabRectangle(c.points, c.boundary))
+      throw Error("Slab contours must be closed axis-aligned rectangles.");
+    const pts = data.points[i],
+      xs = pts.map((p) => p[0]),
+      ys = pts.map((p) => p[1]),
+      scale = Number(data.scale);
+    return [
+      {
+        id: crypto.randomUUID(),
+        name: c.name,
+        locked: false,
+        drawingId: drawing.id,
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        scale,
+        length: String((Math.max(...xs) - Math.min(...xs)) * scale),
+        width: String((Math.max(...ys) - Math.min(...ys)) * scale),
+      },
+    ];
+  });
+  return { drawing, pieces, slabs };
+}
+function slabRectangle(points: Point[], boundary?: CadEdge[]): boolean {
+  if (boundary?.some((e) => e.center) || points.length < 4) return false;
+  const xs = points.map((p) => p[0]),
+    ys = points.map((p) => p[1]),
+    xmin = Math.min(...xs),
+    xmax = Math.max(...xs),
+    ymin = Math.min(...ys),
+    ymax = Math.max(...ys);
+  const expected = (xmax - xmin) * (ymax - ymin);
+  return (
+    expected > 0 &&
+    Math.abs(polygonArea(points).toNumber() - expected) <
+      Math.max(1e-7, expected * 1e-9) &&
+    points.every(
+      (p) =>
+        ((Math.abs(p[0] - xmin) < 1e-7 || Math.abs(p[0] - xmax) < 1e-7) &&
+          p[1] >= ymin - 1e-7 &&
+          p[1] <= ymax + 1e-7) ||
+        ((Math.abs(p[1] - ymin) < 1e-7 || Math.abs(p[1] - ymax) < 1e-7) &&
+          p[0] >= xmin - 1e-7 &&
+          p[0] <= xmax + 1e-7),
     )
-      ? {
-          polishedEdges: c.boundary.flatMap((e, index) =>
-            e.polished || e.color === 3 || e.color === 0x00ff00 ? [index] : [],
-          ),
-          polishedEdgeCount: c.boundary.length,
-        }
-      : {}),
-    ...(c.boundary?.some(
-      (e) => e.center || e.polished || e.color === 3 || e.color === 0x00ff00,
-    )
-      ? {
-          boundary: transformBoundary(
-            c.boundary,
-            (p) => [
-              (p[0] - data.minX) * data.factor + 50,
-              (data.maxY - p[1]) * data.factor + 50,
-            ],
-            data.factor,
-            true,
-          ),
-        }
-      : {}),
-  }));
-  return { drawing, pieces };
+  );
 }
