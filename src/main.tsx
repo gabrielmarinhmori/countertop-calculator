@@ -1,3 +1,4 @@
+import { transformPieces, nudgePieces, snappedDelta } from "./transforms";
 import {
   linearCut,
   polishedLength,
@@ -16,6 +17,11 @@ import { boundaryPath } from "./cad-curves";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Plus,
+  Undo2,
+  Redo2,
+  Magnet,
+  RotateCw,
+  Grab,
   ArrowLeft,
   ArrowUpRight,
   LayoutDashboard,
@@ -46,6 +52,7 @@ import {
   type Shape,
   type Point,
   makeProject,
+  isDxfDrawing,
   makePiece,
   inches,
   pieceArea,
@@ -82,6 +89,27 @@ const safeArea = (p: Piece) => {
   }
 };
 export default function App() {
+  const [multi, setMulti] = useState<string[]>([]);
+  const [multiMode, setMultiMode] = useState(false);
+  const [magnet, setMagnet] = useState(true);
+  const [degrees, setDegrees] = useState("90");
+  const [, refreshHistory] = useState(0);
+  const undoStack = useRef<Project[]>([]),
+    redoStack = useRef<Project[]>([]);
+  const gesture = useRef<Project | null>(null);
+  const moveDrag = useRef<{
+    project: Project;
+    ids: string[];
+    start: Point;
+  } | null>(null);
+  const touches = useRef(new Map<number, Point>());
+  const pinch = useRef<{
+    distance: number;
+    scale: number;
+    anchor: Point;
+  } | null>(null);
+  const pinching = useRef(false);
+
   const [splashHeight, setSplashHeight] = useState("");
   const [choosingSplashEdge, setChoosingSplashEdge] = useState(false);
   const [polishing, setPolishing] = useState(false);
@@ -96,9 +124,9 @@ export default function App() {
     [loading, setLoading] = useState(true),
     [scale, setScale] = useState(1),
     [pan, setPan] = useState<Point>([0, 0]),
-    [tool, setTool] = useState<"select" | "pan" | "polygon" | "calibrate">(
-      "select",
-    ),
+    [tool, setTool] = useState<
+      "select" | "pan" | "polygon" | "calibrate" | "move"
+    >("select"),
     [calibration, setCalibration] = useState<Point[]>([]),
     [knownDistance, setKnownDistance] = useState(""),
     [adding, setAdding] = useState(false),
@@ -135,6 +163,8 @@ export default function App() {
       });
   }
   function edit(next: Project) {
+    if (next === project) return;
+    if (project && !gesture.current) remember(project);
     next = refreshEdgeBacksplashes(next);
     const p = {
       ...next,
@@ -144,6 +174,94 @@ export default function App() {
     setProject(p);
     persist(p);
   }
+  function remember(p: Project) {
+    undoStack.current = [...undoStack.current.slice(-59), p];
+    redoStack.current = [];
+    refreshHistory((v) => v + 1);
+  }
+  function finishGesture() {
+    if (gesture.current && project && gesture.current !== project)
+      remember(gesture.current);
+    gesture.current = null;
+    moveDrag.current = null;
+    drag.current = null;
+  }
+  function undo(redo = false) {
+    if (!project) return;
+    const from = redo ? redoStack.current : undoStack.current,
+      to = redo ? undoStack.current : redoStack.current;
+    const previous = from.pop();
+    if (!previous) return;
+    to.push(project);
+    setProject(previous);
+    persist(previous);
+    setError("");
+    gesture.current = null;
+    moveDrag.current = null;
+    drag.current = null;
+    refreshHistory((v) => v + 1);
+  }
+  const selectedIds = (
+    tool === "move" ? multi : selected ? [selected] : []
+  ).filter((id) =>
+    project?.pieces.some((p) => p.id === id && p.drawingId === drawingId),
+  );
+  function moveSelected(delta: Point) {
+    if (!project) return;
+    try {
+      edit(nudgePieces(project, selectedIds, delta));
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    const release = () => {
+      if (gesture.current) finishGesture();
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    const key = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("input,textarea,select,[contenteditable=true]"))
+        return;
+      if (!project || tab !== "Workspace" || dxfReview) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo(e.shiftKey);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        undo(true);
+        return;
+      }
+      const delta: Record<string, Point> = {
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+      };
+      if (
+        delta[e.key] &&
+        selectedIds.length &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        const d = delta[e.key],
+          step = e.shiftKey ? 2 : 1;
+        moveSelected([d[0] * step, d[1] * step]);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+    };
+  });
   function patchPiece(patch: Partial<Piece>) {
     if (!project) return;
     if (
@@ -174,6 +292,16 @@ export default function App() {
       });
   }
   function open(p: Project) {
+    undoStack.current = [];
+    redoStack.current = [];
+    gesture.current = null;
+    moveDrag.current = null;
+    drag.current = null;
+    setMulti([]);
+    setMultiMode(false);
+    touches.current.clear();
+    pinch.current = null;
+    pinching.current = false;
     setChoosingSplashEdge(false);
     setProject(p);
     setSelected(p.pieces[0]?.id || "");
@@ -219,6 +347,9 @@ export default function App() {
     persist(p);
     open(p);
   }
+  useEffect(() => {
+    if (tool !== "move") setMulti([]);
+  }, [selected, tool]);
   const piece = project?.pieces.find((p) => p.id === selected);
   const drawing = project?.drawings.find((d) => d.id === drawingId);
   useEffect(() => {
@@ -327,6 +458,7 @@ export default function App() {
     return [(pt.x - pan[0]) / scale, (pt.y - pan[1]) / scale];
   }
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (pinching.current) return;
     const pt = svgPoint(e);
     if (tool === "pan") {
       drag.current = { index: -2, start: [e.clientX, e.clientY], origin: pan };
@@ -338,6 +470,28 @@ export default function App() {
     }
   }
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (pinching.current) return;
+    if (moveDrag.current) {
+      const d = moveDrag.current,
+        point = svgPoint(e);
+      let delta: Point = [point[0] - d.start[0], point[1] - d.start[1]];
+      try {
+        if (magnet) {
+          const ctm = svgRef.current!.getScreenCTM()!;
+          delta = snappedDelta(
+            d.project,
+            d.ids,
+            delta,
+            10 / (Math.hypot(ctm.a, ctm.b) * scale),
+          );
+        }
+        edit(transformPieces(d.project, d.ids, delta));
+        setError("");
+      } catch (error) {
+        setError((error as Error).message);
+      }
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     if (d.index === -2) {
@@ -362,9 +516,72 @@ export default function App() {
         });
     }
   }
+  function screenPoint(p: Point): Point {
+    const q = new DOMPoint(...p).matrixTransform(
+      svgRef.current!.getScreenCTM()!.inverse(),
+    );
+    return [q.x, q.y];
+  }
+  function captureDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (!gesture.current && !pinching.current) gesture.current = project;
+    if (e.pointerType !== "touch") return;
+    touches.current.set(e.pointerId, [e.clientX, e.clientY]);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (touches.current.size === 2) {
+      const [a, b] = [...touches.current.values()],
+        center = screenPoint([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+      if (gesture.current && gesture.current !== project) {
+        setProject(gesture.current);
+        persist(gesture.current);
+      }
+      gesture.current = null;
+      moveDrag.current = null;
+      drag.current = null;
+      pinching.current = true;
+      pinch.current = {
+        distance: Math.max(1, Math.hypot(a[0] - b[0], a[1] - b[1])),
+        scale,
+        anchor: [(center[0] - pan[0]) / scale, (center[1] - pan[1]) / scale],
+      };
+      e.stopPropagation();
+    }
+  }
+  function captureMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (e.pointerType !== "touch" || !touches.current.has(e.pointerId)) return;
+    touches.current.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pinching.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (touches.current.size !== 2 || !pinch.current) return;
+      const [a, b] = [...touches.current.values()],
+        p = pinch.current;
+      const zoom = Math.max(
+        0.25,
+        Math.min(
+          8,
+          (p.scale * Math.hypot(a[0] - b[0], a[1] - b[1])) / p.distance,
+        ),
+      );
+      const center = screenPoint([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+      setScale(zoom);
+      setPan([center[0] - p.anchor[0] * zoom, center[1] - p.anchor[1] * zoom]);
+    }
+  }
+  function captureUp(e: React.PointerEvent<SVGSVGElement>) {
+    touches.current.delete(e.pointerId);
+    if (pinching.current) {
+      e.stopPropagation();
+      if (!touches.current.size) {
+        pinching.current = false;
+        pinch.current = null;
+      }
+      return;
+    }
+    finishGesture();
+  }
   const frame = project
     ? annotationFrame(
-        project,
+        gesture.current || project,
         drawingId,
         drawing?.width || 1000,
         drawing?.height || 650,
@@ -721,6 +938,41 @@ export default function App() {
                           <MousePointer2 size={17} />
                         </button>
                         <button
+                          title="Undo (Command/Ctrl+Z)"
+                          disabled={!undoStack.current.length}
+                          onClick={() => undo()}
+                        >
+                          <Undo2 size={17} />
+                        </button>
+                        <button
+                          title="Redo (Command/Ctrl+Shift+Z)"
+                          disabled={!redoStack.current.length}
+                          onClick={() => undo(true)}
+                        >
+                          <Redo2 size={17} />
+                        </button>
+                        <button
+                          title="Move pieces"
+                          aria-pressed={tool === "move"}
+                          className={tool === "move" ? "selected" : ""}
+                          onClick={() => {
+                            setChoosingSplashEdge(false);
+                            setPolishing(false);
+                            setTool("move");
+                            setMulti(selected ? [selected] : []);
+                          }}
+                        >
+                          <Grab size={17} />
+                        </button>
+                        <button
+                          title="Snap magnet"
+                          aria-pressed={magnet}
+                          className={magnet ? "selected" : ""}
+                          onClick={() => setMagnet(!magnet)}
+                        >
+                          <Magnet size={17} />
+                        </button>
+                        <button
                           title="Pan"
                           className={tool === "pan" ? "selected" : ""}
                           onClick={() => {
@@ -783,6 +1035,58 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    {tool === "move" && (
+                      <div
+                        className="splash-toolbar"
+                        role="region"
+                        aria-label="Move pieces controls"
+                      >
+                        <button
+                          aria-pressed={multiMode}
+                          onClick={() => setMultiMode(!multiMode)}
+                        >
+                          Multi-select
+                        </button>
+                        <span>{selectedIds.length} selected</span>
+                        <label>
+                          Rotation (degrees)
+                          <input
+                            type="number"
+                            value={degrees}
+                            onChange={(e) => setDegrees(e.target.value)}
+                          />
+                        </label>
+                        <button
+                          disabled={!selectedIds.length}
+                          onClick={() => {
+                            try {
+                              if (!degrees.trim())
+                                throw Error("Enter a rotation in degrees.");
+                              edit(
+                                transformPieces(
+                                  project,
+                                  selectedIds,
+                                  [0, 0],
+                                  Number(degrees),
+                                ),
+                              );
+                              setError("");
+                            } catch (e) {
+                              setError((e as Error).message);
+                            }
+                          }}
+                        >
+                          <RotateCw size={16} />
+                          Rotate selected
+                        </button>
+                        <p>
+                          Drag pieces. Shift-click or Multi-select adds/removes
+                          pieces. Turn off Multi-select to drag the group on
+                          mobile. Arrow keys: 1 in; Shift + arrow: 2 in. Moving
+                          a linked splash by itself makes it independent.
+                        </p>
+                      </div>
+                    )}
                     {polishing && (
                       <div
                         className="splash-toolbar"
@@ -834,6 +1138,10 @@ export default function App() {
                         ref={svgRef}
                         viewBox={`${frame.x} ${frame.y} ${viewWidth} ${viewHeight}`}
                         aria-label="Interactive drawing annotations"
+                        onPointerDownCapture={captureDown}
+                        onPointerMoveCapture={captureMove}
+                        onPointerUpCapture={captureUp}
+                        onPointerCancelCapture={captureUp}
                         onPointerDown={pointerDown}
                         onPointerMove={pointerMove}
                         onPointerUp={() => {
@@ -867,7 +1175,7 @@ export default function App() {
                         <g
                           transform={`translate(${pan[0]},${pan[1]}) scale(${scale})`}
                         >
-                          {drawing ? (
+                          {drawing && !isDxfDrawing(drawing) ? (
                             <image
                               href={drawing.data}
                               width={drawing.width}
@@ -893,10 +1201,7 @@ export default function App() {
                                   ? panel.boundary.map((e) => e.start)
                                   : p.shape === "Polygon"
                                     ? p.points
-                                    : geometry(p).map(([x, y]) => [
-                                        x * 2 + p.annotation[0],
-                                        y * 2 + p.annotation[1],
-                                      ]);
+                                    : drawingEdges(p).map((e) => e.start);
                                 pieceArea(p);
                               } catch {
                                 valid = false;
@@ -931,9 +1236,37 @@ export default function App() {
                               return (
                                 <g
                                   key={p.id}
+                                  className="drawing-piece"
+                                  data-piece-id={p.id}
+                                  data-selected={selectedIds.includes(p.id)}
                                   onPointerDown={(e) => {
+                                    if (pinching.current) return;
+                                    if (tool === "move") {
+                                      e.stopPropagation();
+                                      let ids = selectedIds;
+                                      if (e.shiftKey || multiMode) {
+                                        ids = ids.includes(p.id)
+                                          ? ids.filter((id) => id !== p.id)
+                                          : [...ids, p.id];
+                                      } else if (!ids.includes(p.id))
+                                        ids = [p.id];
+                                      setMulti(ids);
+                                      setSelected(p.id);
+                                      if (ids.includes(p.id)) {
+                                        moveDrag.current = {
+                                          project,
+                                          ids,
+                                          start: svgPoint(e),
+                                        };
+                                        svgRef.current?.setPointerCapture(
+                                          e.pointerId,
+                                        );
+                                      }
+                                      return;
+                                    }
                                     if (tool !== "select") return;
                                     e.stopPropagation();
+                                    setMulti([]);
                                     setSelected(p.id);
                                     if (
                                       p.shape !== "Polygon" &&
@@ -959,7 +1292,7 @@ export default function App() {
                                         fill={`${color}35`}
                                         stroke={color}
                                         strokeWidth={
-                                          p.id === selected ? 3 : 1.5
+                                          selectedIds.includes(p.id) ? 3 : 1.5
                                         }
                                         vectorEffect="non-scaling-stroke"
                                       />
@@ -977,7 +1310,9 @@ export default function App() {
                                       d={boundaryPath(p.boundary)}
                                       fill={`${color}28`}
                                       stroke={color}
-                                      strokeWidth={p.id === selected ? 3 : 1.5}
+                                      strokeWidth={
+                                        selectedIds.includes(p.id) ? 3 : 1.5
+                                      }
                                       vectorEffect="non-scaling-stroke"
                                     />
                                   ) : (
@@ -987,7 +1322,9 @@ export default function App() {
                                         .join(" ")}
                                       fill={`${color}28`}
                                       stroke={color}
-                                      strokeWidth={p.id === selected ? 3 : 1.5}
+                                      strokeWidth={
+                                        selectedIds.includes(p.id) ? 3 : 1.5
+                                      }
                                       vectorEffect="non-scaling-stroke"
                                       strokeDasharray={
                                         !valid ? "6 4" : undefined
@@ -1229,7 +1566,9 @@ export default function App() {
                     <div className="canvas-caption">
                       <span className="local-dot" />
                       {drawing
-                        ? "Original drawing · annotations stay aligned"
+                        ? isDxfDrawing(drawing)
+                          ? "CAD pieces · editable arrangement"
+                          : "Original drawing · annotations stay aligned"
                         : "Illustrative schematic · not a measured drawing scale"}
                     </div>
                     {tool === "calibrate" && (
@@ -1304,8 +1643,16 @@ export default function App() {
                       {project.pieces.map((p) => (
                         <button
                           key={p.id}
-                          className={`piece-row ${selected === p.id ? "active" : ""}`}
-                          onClick={() => {
+                          className={`piece-row ${selectedIds.includes(p.id) ? "active" : ""}`}
+                          onClick={(e) => {
+                            if (tool === "move")
+                              setMulti(
+                                e.shiftKey || multiMode
+                                  ? selectedIds.includes(p.id)
+                                    ? selectedIds.filter((id) => id !== p.id)
+                                    : [...selectedIds, p.id]
+                                  : [p.id],
+                              );
                             setSelected(p.id);
                             setDrawingId(p.drawingId);
                           }}

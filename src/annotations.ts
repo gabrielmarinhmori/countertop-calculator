@@ -1,5 +1,17 @@
-import { type Project, type Piece, geometry, category, inches } from "./engine";
-import { type CadEdge, signedBoundaryArea, edgeAt } from "./cad-curves";
+import {
+  type Project,
+  type Piece,
+  geometry,
+  orientedGeometry,
+  category,
+  inches,
+} from "./engine";
+import {
+  type CadEdge,
+  signedBoundaryArea,
+  edgeAt,
+  sampleBoundary,
+} from "./cad-curves";
 /** Drawing coordinates; cutting contact uses the confirmed source scale (manual schematics: 2 px/in). */
 export function drawingEdges(p: Piece): CadEdge[] {
   if (p.boundary) {
@@ -9,7 +21,7 @@ export function drawingEdges(p: Piece): CadEdge[] {
   const points =
     p.shape === "Polygon"
       ? p.points
-      : geometry(p).map(
+      : orientedGeometry(p).map(
           ([x, y]) =>
             [x * 2 + p.annotation[0], y * 2 + p.annotation[1]] as [
               number,
@@ -114,14 +126,16 @@ export function annotationFrame(
   height: number,
 ) {
   const points = project.pieces
-    .filter((p) => p.drawingId === drawingId && p.edgeSource)
-    .flatMap(
-      (p) =>
-        linkedDrawingPanel(project, p)?.boundary.flatMap((e) => [
-          e.start,
-          e.end,
-        ]) || [],
-    );
+    .filter((p) => p.drawingId === drawingId)
+    .flatMap((p) => {
+      try {
+        return sampleBoundary(
+          linkedDrawingPanel(project, p)?.boundary || drawingEdges(p),
+        );
+      } catch {
+        return [];
+      }
+    });
   const minX = Math.min(0, ...points.map((p) => p[0] - 48)),
     minY = Math.min(0, ...points.map((p) => p[1] - 48)),
     maxX = Math.max(width, ...points.map((p) => p[0] + 48)),

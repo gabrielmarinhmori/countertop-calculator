@@ -9,12 +9,12 @@ import { jsPDF } from "jspdf";
 import {
   type Project,
   type Piece,
-  geometry,
   pieceArea,
   category,
   sqft,
   totals,
   dimension,
+  isDxfDrawing,
 } from "./engine";
 import { loadImage } from "./files";
 export function dimensions(p: Piece): string {
@@ -44,7 +44,8 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.translate(-frame.x, -frame.y);
-  if (drawing.data) ctx.drawImage(await loadImage(drawing.data), 0, 0);
+  if (drawing.data && !isDxfDrawing(drawing as import("./engine").Drawing))
+    ctx.drawImage(await loadImage(drawing.data), 0, 0);
   ctx.lineWidth = Math.max(2, drawing.width / 600);
   for (const p of project.pieces.filter((p) => p.drawingId === drawingId)) {
     try {
@@ -53,10 +54,7 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
         ? panel.boundary.map((e) => e.start)
         : p.shape === "Polygon"
           ? p.points
-          : geometry(p).map(([x, y]) => [
-              x * 2 + p.annotation[0],
-              y * 2 + p.annotation[1],
-            ]);
+          : drawingEdges(p).map((e) => e.start);
       ctx.beginPath();
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.closePath();

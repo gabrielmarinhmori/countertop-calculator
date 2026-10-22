@@ -40,6 +40,7 @@ export function restoreProject(value: unknown): Project {
     )
       throw Error("Invalid drawing in backup.");
     return {
+      ...(d.kind === "dxf" ? { kind: "dxf" as const } : {}),
       id: d.id,
       name: d.name,
       data: d.data,
@@ -74,6 +75,11 @@ export function restoreProject(value: unknown): Project {
     }
     if (typeof p.id !== "string" || idMap.has(p.id))
       throw Error("Invalid or duplicate piece identifier.");
+    if (
+      p.rotation !== undefined &&
+      (typeof p.rotation !== "number" || !Number.isFinite(p.rotation))
+    )
+      throw Error("Invalid piece rotation.");
     const result = makePiece(p.shape);
     idMap.set(p.id, result.id);
     if (
@@ -135,6 +141,7 @@ export function restoreProject(value: unknown): Project {
             polishedEdgeCount: p.polishedEdgeCount,
           }
         : {}),
+      ...(p.rotation !== undefined ? { rotation: p.rotation } : {}),
       name: p.name,
       points: p.points,
       annotation: p.annotation,

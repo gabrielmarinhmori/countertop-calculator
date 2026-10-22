@@ -427,6 +427,7 @@ export function importDxf(
     ctx.stroke();
   });
   const drawing: Drawing = {
+    kind: "dxf",
     id: crypto.randomUUID(),
     name: `${review.name} · DXF (${unit}, verified; surface categories reviewed)`,
     data: canvas.toDataURL("image/png"),

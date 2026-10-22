@@ -37,6 +37,7 @@ export interface Piece {
   defaultConfirmed: boolean;
   drawingId: string;
   annotation: Point;
+  rotation?: number;
   surface?: "horizontal" | "backsplash" | "waterfall";
   boundary?: CadEdge[];
   polishedEdges?: number[];
@@ -44,6 +45,7 @@ export interface Piece {
   edgeSource?: { pieceId: string; edgeIndex: number; edgeCount: number };
 }
 export interface Drawing {
+  kind?: "dxf";
   id: string;
   name: string;
   data: string;
@@ -276,7 +278,7 @@ export function totals(project: Project) {
         throw Error("Shared positions require signed decimal inches.");
       if (!Number.isFinite(Number(p.x)) || !Number.isFinite(Number(p.y)))
         throw Error("Physical origins must be finite.");
-      const pts = geometry(p).map(
+      const pts = orientedGeometry(p).map(
         ([x, y]) => [x + Number(p.x), y + Number(p.y)] as Point,
       );
       return [[...pts, pts[0]]];
@@ -375,9 +377,20 @@ export function makeProject(name = "Untitled project"): Project {
   };
 }
 
+/** Local physical outline with the piece's rigid rotation applied. */
+export function orientedGeometry(p: Piece): Point[] {
+  const points = geometry(p);
+  if (p.shape === "Polygon" || !p.rotation) return points;
+  const angle = ((p.rotation % 360) * Math.PI) / 180;
+  return points.map(([x, y]) => [
+    x * Math.cos(angle) - y * Math.sin(angle),
+    x * Math.sin(angle) + y * Math.cos(angle),
+  ]);
+}
+
 /** Physical edge lengths, independent of annotation zoom or position. */
 export function physicalEdges(p: Piece): CadEdge[] {
-  const pts = geometry(p);
+  const pts = orientedGeometry(p);
   if (p.boundary) {
     const scale = inches(p.scale).toNumber();
     return transformBoundary(
@@ -506,3 +519,6 @@ export function changePieceSurface(
     ),
   });
 }
+
+export const isDxfDrawing = (d: Drawing) =>
+  d.kind === "dxf" || d.name.includes(" · DXF (");
