@@ -1595,3 +1595,20 @@ input[readonly] {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+.piece-settings,
+.piece-advanced {
+  padding: 12px 0;
+  border-bottom: 1px solid #e0e6dc;
+}
+.piece-settings > summary,
+.piece-advanced > summary {
+  cursor: pointer;
+  color: #42614d;
+  font-weight: 600;
+  font-size: 12px;
+}
+.piece-settings[open] > summary,
+.piece-advanced[open] > summary {
+  margin-bottom: 14px;
+}

@@ -1,3 +1,4 @@
+import { contextScale } from "./drawing-scale";
 import { type Project, type Point, inches } from "./engine";
 export interface DrawingSlab {
   id: string;
@@ -42,10 +43,11 @@ export function addDrawingSlab(
   );
   if (
     !source &&
+    !p.drawings.find((d) => d.id === drawingId)?.scale &&
     p.pieces.some((s) => s.drawingId === drawingId && s.shape === "Polygon")
   )
     throw Error("Confirm the drawing scale before adding a slab.");
-  const scale = source ? inches(source.scale).toNumber() : 0.5;
+  const scale = contextScale(p, drawingId);
   const x = existing.length
     ? Math.max(
         ...existing.map((s) => {

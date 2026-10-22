@@ -451,6 +451,7 @@ export function importDxf(
   });
   const drawing: Drawing = {
     kind: "dxf",
+    scale: Number(data.scale),
     id: crypto.randomUUID(),
     name: `${review.name} · DXF (${unit}, verified; surface categories reviewed)`,
     data: canvas.toDataURL("image/png"),

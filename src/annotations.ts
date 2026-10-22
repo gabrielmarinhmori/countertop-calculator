@@ -1,3 +1,4 @@
+import { pieceDrawingScale } from "./drawing-scale";
 import { slabBounds } from "./drawing-slabs";
 import {
   type Project,
@@ -24,10 +25,10 @@ export function drawingEdges(p: Piece): CadEdge[] {
       ? p.points
       : orientedGeometry(p).map(
           ([x, y]) =>
-            [x * 2 + p.annotation[0], y * 2 + p.annotation[1]] as [
-              number,
-              number,
-            ],
+            [
+              x / pieceDrawingScale(p) + p.annotation[0],
+              y / pieceDrawingScale(p) + p.annotation[1],
+            ] as [number, number],
         );
   if (p.shape === "Polygon") geometry(p);
   return points.map((start, i) => ({
@@ -67,9 +68,7 @@ export function linkedDrawingPanel(
   const source = project.pieces.find((s) => s.id === p.edgeSource?.pieceId);
   if (!edge || !source) return;
   try {
-    const height =
-      inches(p.width).toNumber() *
-      (source.shape === "Polygon" ? 1 / inches(source.scale).toNumber() : 2);
+    const height = inches(p.width).toNumber() * (1 / pieceDrawingScale(source));
     const orientation = signedBoundaryArea(drawingEdges(source)).isNegative()
       ? -1
       : 1;

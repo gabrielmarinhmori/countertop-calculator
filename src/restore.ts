@@ -40,7 +40,10 @@ export function restoreProject(value: unknown): Project {
       d.width * d.height > 40000000
     )
       throw Error("Invalid drawing in backup.");
+    if (d.scale !== undefined && (!Number.isFinite(d.scale) || d.scale <= 0))
+      throw Error("Invalid drawing scale.");
     return {
+      ...(d.scale !== undefined ? { scale: d.scale } : {}),
       ...(d.kind === "dxf" ? { kind: "dxf" as const } : {}),
       id: d.id,
       name: d.name,
@@ -81,6 +84,11 @@ export function restoreProject(value: unknown): Project {
       (typeof p.rotation !== "number" || !Number.isFinite(p.rotation))
     )
       throw Error("Invalid piece rotation.");
+    if (
+      p.displayScale !== undefined &&
+      (!Number.isFinite(p.displayScale) || p.displayScale <= 0)
+    )
+      throw Error("Invalid schematic scale.");
     const result = makePiece(p.shape);
     idMap.set(p.id, result.id);
     if (
@@ -143,6 +151,7 @@ export function restoreProject(value: unknown): Project {
           }
         : {}),
       ...(p.rotation !== undefined ? { rotation: p.rotation } : {}),
+      ...(p.displayScale !== undefined ? { displayScale: p.displayScale } : {}),
       name: p.name,
       points: p.points,
       annotation: p.annotation,

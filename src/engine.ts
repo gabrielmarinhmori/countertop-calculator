@@ -39,6 +39,7 @@ export interface Piece {
   drawingId: string;
   annotation: Point;
   rotation?: number;
+  displayScale?: number;
   surface?: "horizontal" | "backsplash" | "waterfall";
   boundary?: CadEdge[];
   polishedEdges?: number[];
@@ -46,6 +47,7 @@ export interface Piece {
   edgeSource?: { pieceId: string; edgeIndex: number; edgeCount: number };
 }
 export interface Drawing {
+  scale?: number;
   kind?: "dxf";
   id: string;
   name: string;

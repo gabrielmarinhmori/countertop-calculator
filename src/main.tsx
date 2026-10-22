@@ -1,3 +1,9 @@
+import {
+  copyPieces,
+  pastePieces,
+  type PieceClipboard,
+} from "./piece-clipboard";
+import { normalizeDrawingScales } from "./drawing-scale";
 import { slabUsage } from "./slab-usage";
 import DrawingSlabs from "./DrawingSlabs";
 import { slabBounds, moveDrawingSlab } from "./drawing-slabs";
@@ -21,6 +27,7 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Undo2,
+  ClipboardPaste,
   Redo2,
   Magnet,
   RotateCw,
@@ -97,6 +104,8 @@ export default function App() {
   const [multi, setMulti] = useState<string[]>([]);
   const [multiMode, setMultiMode] = useState(false);
   const [magnet, setMagnet] = useState(true);
+  const clipboard = useRef<PieceClipboard | null>(null);
+  const pasteCount = useRef(0);
   const [degrees, setDegrees] = useState("90");
   const [showRotation, setShowRotation] = useState(false);
   const [showLabels, setShowLabels] = useState(false);
@@ -181,7 +190,7 @@ export default function App() {
   function edit(next: Project) {
     if (next === project) return;
     if (project && !gesture.current) remember(project);
-    next = refreshEdgeBacksplashes(next);
+    next = refreshEdgeBacksplashes(normalizeDrawingScales(next));
     const p = {
       ...next,
       updated: new Date().toISOString(),
@@ -224,6 +233,43 @@ export default function App() {
   ).filter((id) =>
     project?.pieces.some((p) => p.id === id && p.drawingId === drawingId),
   );
+  function copySelected() {
+    if (!project || (!selectedIds.length && !selectedSlab)) return;
+    try {
+      clipboard.current = selectedIds.length
+        ? copyPieces(project, selectedIds)
+        : {
+            pieces: [],
+            slabs: project.drawingSlabs
+              ?.filter((s) => s.id === selectedSlab)
+              .map((s) => structuredClone(s)),
+          };
+      pasteCount.current = 0;
+      refreshHistory((v) => v + 1);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  function pasteSelected() {
+    if (!project || !clipboard.current) return;
+    try {
+      const result = pastePieces(
+        project,
+        clipboard.current,
+        drawingId,
+        ++pasteCount.current,
+      );
+      edit(result.project);
+      setSelected(result.ids[0] || "");
+      setMulti(result.ids);
+      setSelectedSlab(result.slabIds[0] || "");
+      if (result.slabIds.length) setShowSlabs(true);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   function moveSelected(delta: Point) {
     if (!project) return;
     try {
@@ -244,6 +290,24 @@ export default function App() {
       if (target.closest("input,textarea,select,[contenteditable=true]"))
         return;
       if (!project || tab !== "Workspace" || dxfReview) return;
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.key.toLowerCase() === "c" &&
+        (selectedIds.length || selectedSlab)
+      ) {
+        e.preventDefault();
+        copySelected();
+        return;
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.key.toLowerCase() === "v" &&
+        clipboard.current
+      ) {
+        e.preventDefault();
+        pasteSelected();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         undo(e.shiftKey);
@@ -312,8 +376,25 @@ export default function App() {
       );
       return;
     }
+    const active = project.pieces.find((p) => p.id === selected);
+    let drawings = project.drawings;
+    if (patch.scaleConfirmed && active?.shape === "Polygon") {
+      try {
+        const scale = inches(patch.scale ?? active.scale).toNumber();
+        if (!Number.isFinite(scale) || scale <= 0)
+          throw Error("Enter a valid measured scale.");
+        if (active.drawingId)
+          drawings = project.drawings.map((d) =>
+            d.id === active.drawingId ? { ...d, scale } : d,
+          );
+      } catch (e) {
+        setError((e as Error).message);
+        return;
+      }
+    }
     edit({
       ...project,
+      drawings,
       pieces: project.pieces.map((p) =>
         p.id === selected ? { ...p, ...patch } : p,
       ),
@@ -331,6 +412,11 @@ export default function App() {
       });
   }
   function open(p: Project) {
+    const normalized = normalizeDrawingScales(p);
+    if (normalized !== p) {
+      p = refreshEdgeBacksplashes(normalized);
+      persist(p);
+    }
     undoStack.current = [];
     redoStack.current = [];
     gesture.current = null;
@@ -1103,6 +1189,23 @@ export default function App() {
                           }}
                         >
                           <Grab size={17} />
+                        </button>
+                        <button
+                          title="Copy selected (Command/Ctrl+C)"
+                          disabled={!selectedIds.length && !selectedSlab}
+                          onClick={copySelected}
+                        >
+                          <Copy size={17} />
+                        </button>
+                        <button
+                          title="Paste pieces (Command/Ctrl+V)"
+                          disabled={
+                            !clipboard.current?.pieces.length &&
+                            !clipboard.current?.slabs?.length
+                          }
+                          onClick={pasteSelected}
+                        >
+                          <ClipboardPaste size={17} />
                         </button>
                         <button
                           title="Rotation tool"
@@ -1948,72 +2051,85 @@ export default function App() {
                             <Trash2 size={14} />
                           </button>
                         </div>
-                        <label>
-                          Surface category
-                          <select
-                            aria-label="Surface category"
-                            value={category(piece)}
-                            onChange={(e) => {
-                              try {
-                                edit(
-                                  changePieceSurface(
-                                    project,
-                                    piece.id,
-                                    e.target.value as
-                                      "horizontal" | "backsplash" | "waterfall",
-                                  ),
-                                );
-                                setError("");
-                              } catch (error) {
-                                setError((error as Error).message);
-                              }
-                            }}
-                          >
-                            <option value="horizontal">Countertop</option>
-                            <option value="backsplash">
-                              Back / side splash
-                            </option>
-                            <option value="waterfall">Waterfall</option>
-                          </select>
-                        </label>
-                        <p className="help">
-                          Changing category updates the totals immediately.
-                          Converting a linked vertical panel to countertop makes
-                          it independent.
-                        </p>
-                        <label>
-                          Piece name
-                          <input
-                            value={piece.name}
-                            onChange={(e) =>
-                              patchPiece({ name: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label>
-                          Drawing reference
-                          <select
-                            value={piece.drawingId}
-                            disabled={!!piece.edgeSource}
-                            onChange={(e) => {
-                              patchPiece({
-                                drawingId: e.target.value,
-                                points: [],
-                                scaleConfirmed: false,
-                              });
-                              setDrawingId(e.target.value);
-                            }}
-                          >
-                            <option value="">Manual schematic</option>
-                            {project.drawings.map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
+                        <details
+                          className="piece-settings"
+                          key={`settings-${piece.id}`}
+                        >
+                          <summary>Piece settings</summary>
+                          <label>
+                            Surface category
+                            <select
+                              aria-label="Surface category"
+                              value={category(piece)}
+                              onChange={(e) => {
+                                try {
+                                  edit(
+                                    changePieceSurface(
+                                      project,
+                                      piece.id,
+                                      e.target.value as
+                                        | "horizontal"
+                                        | "backsplash"
+                                        | "waterfall",
+                                    ),
+                                  );
+                                  setError("");
+                                } catch (error) {
+                                  setError((error as Error).message);
+                                }
+                              }}
+                            >
+                              <option value="horizontal">Countertop</option>
+                              <option value="backsplash">
+                                Back / side splash
                               </option>
-                            ))}
-                          </select>
-                        </label>
+                              <option value="waterfall">Waterfall</option>
+                            </select>
+                          </label>
+                          <p className="help">
+                            Changing category updates the totals immediately.
+                            Converting a linked vertical panel to countertop
+                            makes it independent.
+                          </p>
+                          <label>
+                            Piece name
+                            <input
+                              value={piece.name}
+                              onChange={(e) =>
+                                patchPiece({ name: e.target.value })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Drawing reference
+                            <select
+                              value={piece.drawingId}
+                              disabled={!!piece.edgeSource}
+                              onChange={(e) => {
+                                patchPiece({
+                                  drawingId: e.target.value,
+                                  points: [],
+                                  scaleConfirmed: false,
+                                });
+                                setDrawingId(e.target.value);
+                              }}
+                            >
+                              <option value="">Manual schematic</option>
+                              {project.drawings.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </details>
                         {piece.shape === "Polygon" ? (
-                          <>
+                          <details
+                            className="piece-advanced"
+                            key={`geometry-${piece.id}`}
+                            open={piece.scaleConfirmed ? undefined : true}
+                          >
+                            <summary>Geometry and scale</summary>
                             <p className="help">
                               Use the pen tool to place vertices in order. Use
                               the pen tool to drag vertices; double-click a
@@ -2068,9 +2184,9 @@ export default function App() {
                             </label>
                             {piece.boundary && (
                               <p className="notice">
-                                Circular CAD arcs are preserved analytically.
-                                Edit curved boundaries in QCAD and reimport.
-                                Category: {category(piece)}.
+                                {piece.boundary.some((e) => e.center)
+                                  ? "Circular CAD arcs are preserved analytically. Edit curved boundaries in QCAD and reimport."
+                                  : "This imported CAD outline preserves edge metadata. Edit it in QCAD and reimport to change its geometry."}
                               </p>
                             )}
                             <details>
@@ -2108,7 +2224,7 @@ export default function App() {
                                 </div>
                               ))}
                             </details>
-                          </>
+                          </details>
                         ) : (
                           <>
                             <div className="section-label">
