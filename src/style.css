@@ -1520,3 +1520,17 @@ input[readonly] {
 .bottom-summary > div:last-child strong {
   font-size: 18px;
 }
+
+.toolgroup {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.splash-toolbar {
+  flex-wrap: wrap;
+}
+.splash-toolbar input[type="number"] {
+  width: 90px;
+}
+.drawing-piece[data-selected="true"] > polygon {
+  stroke-width: 3;
+}
