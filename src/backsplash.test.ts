@@ -219,5 +219,6 @@ it("keeps linked panels valid when reclassified as waterfall and detaches when m
   expect(waterfall.pieces[1].edgeSource).toBeDefined();
   const horizontal = changePieceSurface(p, p.pieces[1].id, "horizontal");
   expect(horizontal.pieces[1].edgeSource).toBeUndefined();
-  expect(sqft(totals(horizontal).horizontal)).toBe("19.67");
+  // The detached panel lies over its parent in the default schematic position.
+  expect(sqft(totals(horizontal).horizontal)).toBe("17.00");
 });

@@ -18,7 +18,7 @@ import {
 export function visibleEdges(project: Project, piece: Piece): CadEdge[] {
   return linkedDrawingPanel(project, piece)?.boundary || drawingEdges(piece);
 }
-function placedEdges(project: Project, piece: Piece) {
+export function placedEdges(project: Project, piece: Piece) {
   const parent = project.pieces.find((p) => p.id === piece.edgeSource?.pieceId);
   const source = parent || piece;
   const scale =

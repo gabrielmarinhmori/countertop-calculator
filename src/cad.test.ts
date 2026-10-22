@@ -78,15 +78,20 @@ describe("analytical curved areas", () => {
     expect(t.horizontal.toNumber()).toBeCloseTo(50 * Math.PI);
     expect(t.backsplash.toNumber()).toBeCloseTo(100 * Math.PI);
   });
-  it("blocks unsupported curved overlap union but permits a single curved piece", () => {
+  it("unions curved overlaps with an explicit estimate and preserves isolated analytical area", () => {
     const p = makeProject();
     p.placement = "shared";
     p.placementConfirmed = true;
     p.pieces = [curvedPiece()];
     expect(totals(p).horizontal.toNumber()).toBeCloseTo(50 * Math.PI);
-    p.pieces.push({ ...makePiece("Island"), length: "5", width: "5" });
-    expect(() => totals(p)).toThrow(/curved/);
-    expect(issues(p).join()).toMatch(/curved/);
+    p.pieces.push({
+      ...makePiece("Island"),
+      length: "5",
+      width: "5",
+      annotation: [-10, -10],
+    });
+    expect(totals(p).horizontal.toNumber()).toBeCloseTo(50 * Math.PI, 2);
+    expect(totals(p).approximate).toBe(true);
   });
   it("preserves curve metadata and surface category through unapproved backup restore", () => {
     const p = makeProject();

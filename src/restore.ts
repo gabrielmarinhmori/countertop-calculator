@@ -174,6 +174,11 @@ export function restoreProject(value: unknown): Project {
         (s.drawingId && !drawings.some((d) => d.id === s.drawingId))
       )
         throw Error("Invalid drawing slab.");
+      if (
+        (s.name !== undefined && typeof s.name !== "string") ||
+        (s.locked !== undefined && typeof s.locked !== "boolean")
+      )
+        throw Error("Invalid slab name or lock.");
       slabIds.add(s.id);
       slabBounds(s);
     }

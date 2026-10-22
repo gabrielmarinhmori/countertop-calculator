@@ -1561,3 +1561,37 @@ input[readonly] {
 .drawing-slab {
   cursor: grab;
 }
+
+.drawing-slab[data-locked="true"] {
+  cursor: default;
+}
+.slab-usage {
+  padding: 20px;
+  margin-top: 16px;
+  background: white;
+  border: 1px solid #dfe5d7;
+  border-radius: 8px;
+}
+.slab-usage h3 {
+  margin-top: 0;
+}
+.slab-usage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid #e5e9e1;
+  font-size: 12px;
+}
+.slab-usage-row small {
+  width: 100%;
+  color: #697765;
+}
+
+.drawing-slab-row > button:first-child,
+.slab-usage-row strong {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
