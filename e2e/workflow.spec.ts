@@ -332,6 +332,12 @@ test("an imported piece can change category without changing its geometry", asyn
   await dialog.getByLabel(/I verified the drawing units/).check();
   await dialog.getByRole("button", { name: "Import measured pieces" }).click();
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  if (
+    !(await page
+      .locator(".piece-settings")
+      .evaluate((e) => (e as HTMLDetailsElement).open))
+  )
+    await page.locator(".piece-settings > summary").click();
   await page
     .getByLabel("Surface category", { exact: true })
     .selectOption("waterfall");
@@ -344,6 +350,12 @@ test("an imported piece can change category without changing its geometry", asyn
   ).toHaveCount(1);
   await page.getByRole("button", { name: "Export PDF" }).click();
   await page.getByRole("button", { name: "Workspace", exact: true }).click();
+  if (
+    !(await page
+      .locator(".piece-settings")
+      .evaluate((e) => (e as HTMLDetailsElement).open))
+  )
+    await page.locator(".piece-settings > summary").click();
   await page
     .getByLabel("Surface category", { exact: true })
     .selectOption("backsplash");

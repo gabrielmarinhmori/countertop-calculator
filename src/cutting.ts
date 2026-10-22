@@ -1,3 +1,4 @@
+import { pieceDrawingScale } from "./drawing-scale";
 import Decimal from "decimal.js";
 import {
   type Project,
@@ -21,8 +22,7 @@ export function visibleEdges(project: Project, piece: Piece): CadEdge[] {
 export function placedEdges(project: Project, piece: Piece) {
   const parent = project.pieces.find((p) => p.id === piece.edgeSource?.pieceId);
   const source = parent || piece;
-  const scale =
-    source.shape === "Polygon" ? inches(source.scale).toNumber() : 0.5;
+  const scale = pieceDrawingScale(source);
   return transformBoundary(
     visibleEdges(project, piece),
     (p) => [p[0] * scale, p[1] * scale],

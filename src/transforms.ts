@@ -1,3 +1,4 @@
+import { pieceDrawingScale } from "./drawing-scale";
 import {
   type Project,
   type Piece,
@@ -9,7 +10,7 @@ import {
 import { visibleEdges } from "./cutting";
 import { transformBoundary, sampleBoundary } from "./cad-curves";
 export function drawingScale(p: Piece): number {
-  return p.shape === "Polygon" ? inches(p.scale).toNumber() : 0.5;
+  return pieceDrawingScale(p);
 }
 export function rotatePoint(p: Point, center: Point, degrees: number): Point {
   const a = ((degrees % 360) * Math.PI) / 180,
@@ -20,7 +21,7 @@ export function rotatePoint(p: Point, center: Point, degrees: number): Point {
     center[1] + x * Math.sin(a) + y * Math.cos(a),
   ];
 }
-function detached(project: Project, p: Piece): Piece {
+export function detached(project: Project, p: Piece): Piece {
   if (!p.edgeSource) return p;
   const parent = project.pieces.find((s) => s.id === p.edgeSource!.pieceId)!;
   const boundary = visibleEdges(project, p);
