@@ -1,3 +1,4 @@
+import { slabBounds } from "./drawing-slabs";
 import {
   type Project,
   type Piece,
@@ -136,6 +137,11 @@ export function annotationFrame(
         return [];
       }
     });
+  for (const slab of project.drawingSlabs || []) {
+    if (slab.drawingId !== drawingId) continue;
+    const b = slabBounds(slab);
+    points.push([b.x, b.y], [b.x + b.width, b.y + b.height]);
+  }
   const minX = Math.min(0, ...points.map((p) => p[0] - 48)),
     minY = Math.min(0, ...points.map((p) => p[1] - 48)),
     maxX = Math.max(width, ...points.map((p) => p[0] + 48)),

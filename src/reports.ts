@@ -1,3 +1,4 @@
+import { slabBounds } from "./drawing-slabs";
 import { linearCut, polishedLength, visibleEdges } from "./cutting";
 import {
   drawingEdges,
@@ -44,6 +45,14 @@ export async function annotatedCanvas(project: Project, drawingId: string) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.translate(-frame.x, -frame.y);
+  for (const slab of project.drawingSlabs || []) {
+    if (slab.drawingId !== drawingId) continue;
+    const b = slabBounds(slab);
+    ctx.fillStyle = "#d5d8db";
+    ctx.fillRect(b.x, b.y, b.width, b.height);
+    ctx.strokeStyle = "#9ca3a9";
+    ctx.strokeRect(b.x, b.y, b.width, b.height);
+  }
   if (drawing.data && !isDxfDrawing(drawing as import("./engine").Drawing))
     ctx.drawImage(await loadImage(drawing.data), 0, 0);
   ctx.lineWidth = Math.max(2, drawing.width / 600);
@@ -144,7 +153,11 @@ export async function exportReport(p: Project) {
   );
   line("Gross areas include openings. No waste added.", 9);
   const ids = [...p.drawings.map((d) => d.id)];
-  if (p.pieces.some((piece) => !piece.drawingId)) ids.push("");
+  if (
+    p.pieces.some((piece) => !piece.drawingId) ||
+    p.drawingSlabs?.some((s) => !s.drawingId)
+  )
+    ids.push("");
   for (let i = 0; i < ids.length; i++) {
     if (i > 0) {
       pdf.addPage();

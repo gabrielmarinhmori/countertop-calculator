@@ -135,12 +135,27 @@ export function snappedDelta(
       }
     });
   let best = tolerance,
-    correction: Point = [0, 0];
+    cornerBest = Infinity;
+  let correction: Point = [0, 0],
+    cornerCorrection: Point | null = null;
   for (const p of moving)
     for (const e of visibleEdges(project, p))
       for (const vertex of [e.start, e.end]) {
         const q: Point = [vertex[0] + delta[0], vertex[1] + delta[1]];
         for (const target of fixed) {
+          for (const corner of [target.start, target.end]) {
+            const dx = corner[0] - q[0],
+              dy = corner[1] - q[1],
+              d = Math.hypot(dx, dy);
+            if (
+              Math.abs(dx) <= tolerance &&
+              Math.abs(dy) <= tolerance &&
+              d < cornerBest
+            ) {
+              cornerBest = d;
+              cornerCorrection = [dx, dy];
+            }
+          }
           const candidates = [target.start, target.end];
           if (!target.center) {
             const dx = target.end[0] - target.start[0],
@@ -171,5 +186,6 @@ export function snappedDelta(
           }
         }
       }
-  return [delta[0] + correction[0], delta[1] + correction[1]];
+  const snap = cornerCorrection || correction;
+  return [delta[0] + snap[0], delta[1] + snap[1]];
 }

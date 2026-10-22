@@ -1,3 +1,5 @@
+import DrawingSlabs from "./DrawingSlabs";
+import { slabBounds, moveDrawingSlab } from "./drawing-slabs";
 import { transformPieces, nudgePieces, snappedDelta } from "./transforms";
 import {
   linearCut,
@@ -22,6 +24,8 @@ import {
   Magnet,
   RotateCw,
   Grab,
+  Tags,
+  RectangleHorizontal,
   ArrowLeft,
   ArrowUpRight,
   LayoutDashboard,
@@ -93,6 +97,17 @@ export default function App() {
   const [multiMode, setMultiMode] = useState(false);
   const [magnet, setMagnet] = useState(true);
   const [degrees, setDegrees] = useState("90");
+  const [showRotation, setShowRotation] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
+  const [showSlabs, setShowSlabs] = useState(false);
+  const [selectedSlab, setSelectedSlab] = useState("");
+  const slabDrag = useRef<{
+    project: Project;
+    id: string;
+    start: Point;
+  } | null>(null);
+  const viewState = useRef({ scale: 1, pan: [0, 0] as Point });
+
   const [, refreshHistory] = useState(0);
   const undoStack = useRef<Project[]>([]),
     redoStack = useRef<Project[]>([]);
@@ -184,6 +199,7 @@ export default function App() {
       remember(gesture.current);
     gesture.current = null;
     moveDrag.current = null;
+    slabDrag.current = null;
     drag.current = null;
   }
   function undo(redo = false) {
@@ -198,11 +214,12 @@ export default function App() {
     setError("");
     gesture.current = null;
     moveDrag.current = null;
+    slabDrag.current = null;
     drag.current = null;
     refreshHistory((v) => v + 1);
   }
   const selectedIds = (
-    tool === "move" ? multi : selected ? [selected] : []
+    multi.length ? multi : selected ? [selected] : []
   ).filter((id) =>
     project?.pieces.some((p) => p.id === id && p.drawingId === drawingId),
   );
@@ -296,9 +313,13 @@ export default function App() {
     redoStack.current = [];
     gesture.current = null;
     moveDrag.current = null;
+    slabDrag.current = null;
     drag.current = null;
     setMulti([]);
     setMultiMode(false);
+    setShowRotation(false);
+    setSelectedSlab("");
+    setShowSlabs(false);
     touches.current.clear();
     pinch.current = null;
     pinching.current = false;
@@ -347,9 +368,7 @@ export default function App() {
     persist(p);
     open(p);
   }
-  useEffect(() => {
-    if (tool !== "move") setMulti([]);
-  }, [selected, tool]);
+
   const piece = project?.pieces.find((p) => p.id === selected);
   const drawing = project?.drawings.find((d) => d.id === drawingId);
   useEffect(() => {
@@ -447,6 +466,7 @@ export default function App() {
     ];
     edit({ ...project, pieces: [...project.pieces, p] });
     setSelected(p.id);
+    setMulti([p.id]);
     setAdding(false);
     if (shape === "Polygon") setTool("polygon");
   }
@@ -459,6 +479,11 @@ export default function App() {
   }
   function pointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (pinching.current) return;
+    if (tool === "select" || tool === "move" || tool === "pan") {
+      setSelected("");
+      setMulti([]);
+      setSelectedSlab("");
+    }
     const pt = svgPoint(e);
     if (tool === "pan") {
       drag.current = { index: -2, start: [e.clientX, e.clientY], origin: pan };
@@ -471,6 +496,17 @@ export default function App() {
   }
   function pointerMove(e: React.PointerEvent<SVGSVGElement>) {
     if (pinching.current) return;
+    if (slabDrag.current) {
+      const d = slabDrag.current,
+        p = svgPoint(e);
+      edit(
+        moveDrawingSlab(d.project, d.id, [
+          p[0] - d.start[0],
+          p[1] - d.start[1],
+        ]),
+      );
+      return;
+    }
     if (moveDrag.current) {
       const d = moveDrag.current,
         point = svgPoint(e);
@@ -579,6 +615,89 @@ export default function App() {
     }
     finishGesture();
   }
+  viewState.current = { scale, pan };
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const position = (x: number, y: number): Point => {
+      const p = new DOMPoint(x, y).matrixTransform(
+        svg.getScreenCTM()!.inverse(),
+      );
+      return [p.x, p.y];
+    };
+    const zoomAt = (
+      next: number,
+      point: Point,
+      initial = viewState.current,
+    ) => {
+      const zoom = Math.max(0.25, Math.min(8, next));
+      const anchor: Point = [
+        (point[0] - initial.pan[0]) / initial.scale,
+        (point[1] - initial.pan[1]) / initial.scale,
+      ];
+      const nextPan: Point = [
+        point[0] - anchor[0] * zoom,
+        point[1] - anchor[1] * zoom,
+      ];
+      viewState.current = { scale: zoom, pan: nextPan };
+      setScale(zoom);
+      setPan(nextPan);
+    };
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (gestureStart && (e.ctrlKey || e.metaKey)) return;
+      const v = viewState.current,
+        units =
+          e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? svg.clientHeight : 1;
+      if (e.ctrlKey || e.metaKey)
+        zoomAt(
+          v.scale * Math.exp(-e.deltaY * units * 0.01),
+          position(e.clientX, e.clientY),
+        );
+      else {
+        const ctm = svg.getScreenCTM()!,
+          p: Point = [
+            v.pan[0] - (e.deltaX * units) / Math.hypot(ctm.a, ctm.b),
+            v.pan[1] - (e.deltaY * units) / Math.hypot(ctm.c, ctm.d),
+          ];
+        viewState.current = { ...v, pan: p };
+        setPan(p);
+      }
+    };
+    let gestureStart: { scale: number; pan: Point; point: Point } | null = null;
+    const start = (event: Event) => {
+      event.preventDefault();
+      const e = event as Event & { clientX: number; clientY: number };
+      const r = svg.getBoundingClientRect();
+      gestureStart = {
+        ...viewState.current,
+        point: position(
+          Number.isFinite(e.clientX) ? e.clientX : r.x + r.width / 2,
+          Number.isFinite(e.clientY) ? e.clientY : r.y + r.height / 2,
+        ),
+      };
+    };
+    const change = (event: Event) => {
+      event.preventDefault();
+      const e = event as Event & { scale: number };
+      if (gestureStart && Number.isFinite(e.scale) && e.scale > 0)
+        zoomAt(gestureStart.scale * e.scale, gestureStart.point, gestureStart);
+    };
+    const end = (e: Event) => {
+      e.preventDefault();
+      gestureStart = null;
+    };
+    svg.addEventListener("wheel", wheel, { passive: false });
+    svg.addEventListener("gesturestart", start, { passive: false });
+    svg.addEventListener("gesturechange", change, { passive: false });
+    svg.addEventListener("gestureend", end, { passive: false });
+    return () => {
+      svg.removeEventListener("wheel", wheel);
+      svg.removeEventListener("gesturestart", start);
+      svg.removeEventListener("gesturechange", change);
+      svg.removeEventListener("gestureend", end);
+    };
+  }, [project?.id, tab]);
   const frame = project
     ? annotationFrame(
         gesture.current || project,
@@ -959,10 +1078,32 @@ export default function App() {
                             setChoosingSplashEdge(false);
                             setPolishing(false);
                             setTool("move");
-                            setMulti(selected ? [selected] : []);
                           }}
                         >
                           <Grab size={17} />
+                        </button>
+                        <button
+                          title="Rotation tool"
+                          aria-pressed={showRotation}
+                          onClick={() => setShowRotation(!showRotation)}
+                        >
+                          <RotateCw size={17} />
+                        </button>
+                        <button
+                          title="Show piece labels"
+                          aria-pressed={showLabels}
+                          className={showLabels ? "selected" : ""}
+                          onClick={() => setShowLabels(!showLabels)}
+                        >
+                          <Tags size={17} />
+                        </button>
+                        <button
+                          title="Drawing slabs"
+                          aria-pressed={showSlabs}
+                          className={showSlabs ? "selected" : ""}
+                          onClick={() => setShowSlabs(!showSlabs)}
+                        >
+                          <RectangleHorizontal size={17} />
                         </button>
                         <button
                           title="Snap magnet"
@@ -1048,6 +1189,21 @@ export default function App() {
                           Multi-select
                         </button>
                         <span>{selectedIds.length} selected</span>
+                        <p>
+                          Drag pieces. Shift-click or Multi-select adds/removes
+                          pieces. Turn off Multi-select to drag the group on
+                          mobile. Arrow keys: 1 in; Shift + arrow: 2 in. Moving
+                          a linked splash by itself makes it independent.
+                        </p>
+                      </div>
+                    )}
+                    {showRotation && (
+                      <div
+                        className="splash-toolbar"
+                        role="region"
+                        aria-label="Rotation controls"
+                      >
+                        {" "}
                         <label>
                           Rotation (degrees)
                           <input
@@ -1079,13 +1235,24 @@ export default function App() {
                           <RotateCw size={16} />
                           Rotate selected
                         </button>
-                        <p>
-                          Drag pieces. Shift-click or Multi-select adds/removes
-                          pieces. Turn off Multi-select to drag the group on
-                          mobile. Arrow keys: 1 in; Shift + arrow: 2 in. Moving
-                          a linked splash by itself makes it independent.
-                        </p>
+                        <button onClick={() => setShowRotation(false)}>
+                          Close rotation
+                        </button>
                       </div>
+                    )}
+                    {showSlabs && (
+                      <DrawingSlabs
+                        project={project}
+                        drawingId={drawingId}
+                        onChange={edit}
+                        onError={setError}
+                        selected={selectedSlab}
+                        onSelect={(id) => {
+                          setSelectedSlab(id);
+                          setSelected("");
+                          setMulti([]);
+                        }}
+                      />
                     )}
                     {polishing && (
                       <div
@@ -1175,17 +1342,64 @@ export default function App() {
                         <g
                           transform={`translate(${pan[0]},${pan[1]}) scale(${scale})`}
                         >
-                          {drawing && !isDxfDrawing(drawing) ? (
+                          <rect
+                            width={viewWidth}
+                            height={viewHeight}
+                            fill="url(#grid)"
+                          />
+                          {(project.drawingSlabs || [])
+                            .filter((s) => s.drawingId === drawingId)
+                            .map((s, i) => {
+                              const b = slabBounds(s);
+                              return (
+                                <rect
+                                  key={s.id}
+                                  className="drawing-slab"
+                                  data-slab-id={s.id}
+                                  data-selected={selectedSlab === s.id}
+                                  x={b.x}
+                                  y={b.y}
+                                  width={b.width}
+                                  height={b.height}
+                                  fill="#d5d8db"
+                                  fillOpacity={0.8}
+                                  stroke={
+                                    selectedSlab === s.id
+                                      ? "#52788c"
+                                      : "#9ca3a9"
+                                  }
+                                  strokeWidth={selectedSlab === s.id ? 2.5 : 1}
+                                  vectorEffect="non-scaling-stroke"
+                                  aria-label={`Drawing slab ${i + 1}`}
+                                  onPointerDown={(e) => {
+                                    if (
+                                      pinching.current ||
+                                      !(tool === "select" || tool === "move") ||
+                                      polishing ||
+                                      choosingSplashEdge
+                                    )
+                                      return;
+                                    e.stopPropagation();
+                                    setSelected("");
+                                    setMulti([]);
+                                    setSelectedSlab(s.id);
+                                    slabDrag.current = {
+                                      project,
+                                      id: s.id,
+                                      start: svgPoint(e),
+                                    };
+                                    svgRef.current?.setPointerCapture(
+                                      e.pointerId,
+                                    );
+                                  }}
+                                />
+                              );
+                            })}
+                          {drawing && !isDxfDrawing(drawing) && (
                             <image
                               href={drawing.data}
                               width={drawing.width}
                               height={drawing.height}
-                            />
-                          ) : (
-                            <rect
-                              width={viewWidth}
-                              height={viewHeight}
-                              fill="url(#grid)"
                             />
                           )}
                           {project.pieces
@@ -1241,7 +1455,11 @@ export default function App() {
                                   data-selected={selectedIds.includes(p.id)}
                                   onPointerDown={(e) => {
                                     if (pinching.current) return;
-                                    if (tool === "move") {
+                                    if (
+                                      (tool === "move" || tool === "select") &&
+                                      !choosingSplashEdge &&
+                                      !polishing
+                                    ) {
                                       e.stopPropagation();
                                       let ids = selectedIds;
                                       if (e.shiftKey || multiMode) {
@@ -1251,7 +1469,12 @@ export default function App() {
                                       } else if (!ids.includes(p.id))
                                         ids = [p.id];
                                       setMulti(ids);
-                                      setSelected(p.id);
+                                      setSelected(
+                                        ids.includes(p.id)
+                                          ? p.id
+                                          : ids.at(-1) || "",
+                                      );
+                                      setSelectedSlab("");
                                       if (ids.includes(p.id)) {
                                         moveDrag.current = {
                                           project,
@@ -1263,23 +1486,6 @@ export default function App() {
                                         );
                                       }
                                       return;
-                                    }
-                                    if (tool !== "select") return;
-                                    e.stopPropagation();
-                                    setMulti([]);
-                                    setSelected(p.id);
-                                    if (
-                                      p.shape !== "Polygon" &&
-                                      !p.edgeSource
-                                    ) {
-                                      drag.current = {
-                                        index: -1,
-                                        start: svgPoint(e),
-                                        origin: p.annotation,
-                                      };
-                                      svgRef.current?.setPointerCapture(
-                                        e.pointerId,
-                                      );
                                     }
                                   }}
                                 >
@@ -1331,7 +1537,7 @@ export default function App() {
                                       }
                                     />
                                   )}
-                                  {pts[0] && (
+                                  {showLabels && pts[0] && (
                                     <text
                                       x={labelPoint[0]}
                                       y={
@@ -1350,7 +1556,8 @@ export default function App() {
                                       {p.name} · {safeArea(p)} sq ft
                                     </text>
                                   )}
-                                  {valid &&
+                                  {showLabels &&
+                                    valid &&
                                     !p.edgeSource &&
                                     p.shape !== "Polygon" &&
                                     pts[0] && (
@@ -1363,7 +1570,8 @@ export default function App() {
                                         {dimensions(p)}
                                       </text>
                                     )}
-                                  {p.shape === "Polygon" &&
+                                  {tool === "polygon" &&
+                                    p.shape === "Polygon" &&
                                     !p.boundary &&
                                     p.id === selected &&
                                     pts.map(([x, y], i) => (
@@ -1385,7 +1593,7 @@ export default function App() {
                                           });
                                         }}
                                         onPointerDown={(e) => {
-                                          if (tool !== "select") return;
+                                          if (tool !== "polygon") return;
                                           e.stopPropagation();
                                           drag.current = {
                                             index: i,
@@ -1522,20 +1730,23 @@ export default function App() {
                           )}
                         </g>
                       </svg>
-                      {!project.pieces.length && (
-                        <div className="canvas-empty">
-                          <Ruler size={32} />
-                          <h3>Your plan starts here</h3>
-                          <p>
-                            Upload a drawing, or add your first piece
-                            <br />
-                            to work from manual measurements.
-                          </p>
-                          <button onClick={() => setAdding(true)}>
-                            <Plus size={16} /> Add a piece
-                          </button>
-                        </div>
-                      )}
+                      {!project.pieces.length &&
+                        !project.drawingSlabs?.some(
+                          (s) => s.drawingId === drawingId,
+                        ) && (
+                          <div className="canvas-empty">
+                            <Ruler size={32} />
+                            <h3>Your plan starts here</h3>
+                            <p>
+                              Upload a drawing, or add your first piece
+                              <br />
+                              to work from manual measurements.
+                            </p>
+                            <button onClick={() => setAdding(true)}>
+                              <Plus size={16} /> Add a piece
+                            </button>
+                          </div>
+                        )}
                       <div className="zoom">
                         <button
                           title="Zoom out"
@@ -1645,15 +1856,17 @@ export default function App() {
                           key={p.id}
                           className={`piece-row ${selectedIds.includes(p.id) ? "active" : ""}`}
                           onClick={(e) => {
-                            if (tool === "move")
-                              setMulti(
-                                e.shiftKey || multiMode
-                                  ? selectedIds.includes(p.id)
-                                    ? selectedIds.filter((id) => id !== p.id)
-                                    : [...selectedIds, p.id]
-                                  : [p.id],
-                              );
-                            setSelected(p.id);
+                            const ids =
+                              e.shiftKey || multiMode
+                                ? selectedIds.includes(p.id)
+                                  ? selectedIds.filter((id) => id !== p.id)
+                                  : [...selectedIds, p.id]
+                                : [p.id];
+                            setMulti(ids);
+                            setSelected(
+                              ids.includes(p.id) ? p.id : ids.at(-1) || "",
+                            );
+                            setSelectedSlab("");
                             setDrawingId(p.drawingId);
                           }}
                         >
@@ -1778,10 +1991,10 @@ export default function App() {
                         {piece.shape === "Polygon" ? (
                           <>
                             <p className="help">
-                              Use the pen tool to place vertices in order.
-                              Select to drag vertices; double-click a vertex to
-                              remove it. Pixel coordinates alone cannot
-                              establish area.
+                              Use the pen tool to place vertices in order. Use
+                              the pen tool to drag vertices; double-click a
+                              vertex to remove it. Pixel coordinates alone
+                              cannot establish area.
                             </p>
                             <button
                               disabled={!!piece.boundary}

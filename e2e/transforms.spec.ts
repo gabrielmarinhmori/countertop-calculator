@@ -32,6 +32,9 @@ test("keyboard nudge, group rotation, drag undo and redo preserve measurements",
     .getByRole("button", { name: /Kitchen island/ })
     .click({ modifiers: ["Shift"] });
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Rotation tool", exact: true })
+    .click();
   await page.getByLabel("Rotation (degrees)").fill("37");
   await page
     .getByRole("button", { name: "Rotate selected", exact: true })

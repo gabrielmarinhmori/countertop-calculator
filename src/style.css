@@ -1534,3 +1534,30 @@ input[readonly] {
 .drawing-piece[data-selected="true"] > polygon {
   stroke-width: 3;
 }
+
+.drawing-slabs {
+  padding: 14px;
+  border-bottom: 1px solid #dfe5d7;
+  background: #f5f6f4;
+}
+.slab-add-form,
+.drawing-slab-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.drawing-slabs label {
+  max-width: 145px;
+  font-size: 11px;
+}
+.drawing-slab-row {
+  padding: 10px 0;
+  border-top: 1px solid #dfe5d7;
+}
+.drawing-slab-row.active {
+  background: #e6eeeb;
+}
+.drawing-slab {
+  cursor: grab;
+}

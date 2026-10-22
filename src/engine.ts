@@ -1,3 +1,4 @@
+import type { DrawingSlab } from "./drawing-slabs";
 import type { SlabSettings } from "./slab-planner";
 import {
   type CadEdge,
@@ -62,6 +63,7 @@ export interface Project {
   placementConfirmed: boolean;
   approved?: { at: string; fingerprint: string };
   slabSettings?: SlabSettings;
+  drawingSlabs?: DrawingSlab[];
 }
 export function inches(raw: string): Decimal {
   const s = raw

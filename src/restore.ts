@@ -1,3 +1,4 @@
+import { slabBounds } from "./drawing-slabs";
 import { validateBoundary } from "./cad-curves";
 import {
   type Project,
@@ -158,6 +159,25 @@ export function restoreProject(value: unknown): Project {
       p.edgeSource = { ...p.edgeSource, pieceId: target };
     }
   }
+  if (v.drawingSlabs !== undefined) {
+    if (!Array.isArray(v.drawingSlabs) || v.drawingSlabs.length > 100)
+      throw Error("Invalid drawing slabs.");
+    const slabIds = new Set<string>();
+    for (const s of v.drawingSlabs) {
+      if (
+        !s ||
+        typeof s.id !== "string" ||
+        slabIds.has(s.id) ||
+        typeof s.length !== "string" ||
+        typeof s.width !== "string" ||
+        typeof s.drawingId !== "string" ||
+        (s.drawingId && !drawings.some((d) => d.id === s.drawingId))
+      )
+        throw Error("Invalid drawing slab.");
+      slabIds.add(s.id);
+      slabBounds(s);
+    }
+  }
   if (v.slabSettings) {
     const s = v.slabSettings;
     if (
@@ -189,6 +209,14 @@ export function restoreProject(value: unknown): Project {
         }
       : {}),
     ...makeProject(v.name + " (restored)"),
+    ...(v.drawingSlabs
+      ? {
+          drawingSlabs: v.drawingSlabs.map((s) => ({
+            ...s,
+            id: crypto.randomUUID(),
+          })),
+        }
+      : {}),
     drawings,
     pieces,
     placement: ["shared", "separate"].includes(v.placement)
